@@ -72,10 +72,9 @@ zapit/
 Good first issues are labelled [`good first issue`](../../issues?q=label%3A%22good+first+issue%22).
 
 Higher-impact but harder projects:
-- **Streaming disk writes** — the receiver currently holds all chunks in RAM. Replacing this with the File System Access API (with a memory fallback) would remove the file-size limitation.
-- **Transfer resume** — if a connection drops mid-transfer, the user must restart. Resumable transfers require tracking which chunks arrived and re-sending only the missing ones.
-- **Text/clipboard transfer** — a simple text mode alongside files.
-- **Mobile PWA improvements** — the share-sheet integration on iOS/Android could be tighter.
+- **Full reconnect resume** — the current chunk-level resume (`transfer-engine.ts`) only survives a WebRTC-level hiccup where the signaling WebSocket connection — and therefore the peerId — stays the same. It doesn't survive a real network drop, since the signaling server hands out a fresh random `clientId` per connection (see `signaling-server/src/index.ts`). Closing that gap needs a stable device identity exchanged alongside the ECDH handshake, so a reconnecting client can be matched to its prior partial-transfer state.
+- **iOS share-sheet support** — the Web Share Target integration (`public/sw.js`) is Android/Chrome only; iOS Safari has no equivalent API.
+- **SFU/relay topology for larger rooms** — mesh rooms (`room-manager.ts`'s `MAX_PEERS_PER_ROOM`) are O(N²) connections; fine at small N, but a relay-based mode would let rooms scale further.
 
 ## Reporting Security Issues
 

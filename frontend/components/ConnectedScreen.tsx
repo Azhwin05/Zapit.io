@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert, FolderOpen, FolderCheck, Users, MessageSquare } from 'lucide-react';
 import { SafetyNumber } from './SafetyNumber';
 import { peerLabel } from '@/lib/peer-label';
@@ -25,6 +25,9 @@ interface ConnectedScreenProps {
   onChooseSaveFolder?: () => void;
   safetyList: SafetyEntry[];
   onVerifySafety: (peerId: string) => void;
+  /** Files handed off from the OS share sheet — staged automatically once. */
+  initialFiles?: File[];
+  onInitialFilesConsumed?: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -42,7 +45,7 @@ function FileIcon({ file }: { file: File }) {
 
 export function ConnectedScreen({
   onSend, onSendText, connectedPeerIds, saveDirName, onChooseSaveFolder,
-  safetyList, onVerifySafety,
+  safetyList, onVerifySafety, initialFiles, onInitialFilesConsumed,
 }: ConnectedScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [staged,   setStaged]   = useState<File[]>([]);
@@ -51,6 +54,17 @@ export function ConnectedScreen({
   const [message,  setMessage]  = useState('');
   const [sendingText, setSendingText] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!initialFiles || initialFiles.length === 0) return;
+    setStaged((prev) => {
+      const existing = new Set(prev.map((f) => `${f.name}|${f.size}`));
+      return [...prev, ...initialFiles.filter((f) => !existing.has(`${f.name}|${f.size}`))];
+    });
+    onInitialFilesConsumed?.();
+    // Only re-run when a fresh batch of shared files arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFiles]);
 
   const handleSendText = async () => {
     const text = message.trim();

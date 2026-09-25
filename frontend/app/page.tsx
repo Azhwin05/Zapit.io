@@ -6,6 +6,7 @@ import { SignalingClient } from '@/lib/signaling-client';
 import { ZapitPeer } from '@/lib/webrtc/peer-connection';
 import { pickSaveDirectory, isFileSystemAccessSupported } from '@/lib/webrtc/disk-writer';
 import { peerLabel } from '@/lib/peer-label';
+import { readSharedFiles } from '@/lib/share-target';
 import { NavBar } from '@/components/NavBar';
 import { LandingScreen } from '@/components/LandingScreen';
 import { DiscoveryScreen } from '@/components/DiscoveryScreen';
@@ -45,6 +46,11 @@ export default function HomePage() {
   const [saveDirName, setSaveDirName]       = useState<string | null>(null);
   const [safetyNumbers, setSafetyNumbers]   = useState<Record<string, string>>({});
   const [safetyVerified, setSafetyVerified] = useState<Record<string, boolean>>({});
+  // Files handed off from the OS share sheet (Android/Chrome PWA only — see
+  // sw.js's Web Share Target handler). Pre-staged into ConnectedScreen once
+  // a peer connects; the user still has to create/join a room first, since
+  // there's no destination to send to yet.
+  const [sharedFiles, setSharedFiles]       = useState<File[]>([]);
 
   const sigRef        = useRef<SignalingClient | null>(null);
   const peersRef       = useRef<Map<string, ZapitPeer>>(new Map());
@@ -153,6 +159,20 @@ export default function HomePage() {
       setRoomCode(joinParam);
       setShareUrl(`${window.location.origin}?join=${joinParam}`);
       setHasStarted(true);
+    }
+
+    // Files handed off from the OS share sheet (see sw.js's Web Share Target
+    // handler) land here as ?shared=<sessionId>. Read them back once, then
+    // scrub the param so a refresh doesn't try to re-read an already-consumed
+    // (and by then deleted) cache entry.
+    const sharedParam = params.get('shared');
+    if (sharedParam) {
+      readSharedFiles(sharedParam).then((files) => {
+        if (files.length > 0) setSharedFiles(files);
+      });
+      const url = new URL(window.location.href);
+      url.searchParams.delete('shared');
+      window.history.replaceState({}, '', url.toString());
     }
 
     const unsub = sig.on(async (event) => {
@@ -383,6 +403,8 @@ export default function HomePage() {
           onChooseSaveFolder={isFileSystemAccessSupported() ? handleChooseSaveFolder : undefined}
           safetyList={safetyList}
           onVerifySafety={(peerId) => setSafetyVerified((prev) => ({ ...prev, [peerId]: true }))}
+          initialFiles={sharedFiles}
+          onInitialFilesConsumed={() => setSharedFiles([])}
         />
       )}
 

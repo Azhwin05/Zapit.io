@@ -58,10 +58,14 @@ See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulne
 
 ## Features
 
-- 📁 **Any file type, any size** (RAM-limited on receiver; UI warns above 500 MB)
+- 📁 **Any file type, any size** — streams straight to disk via the File System Access API when you pick a save folder (Chromium browsers); falls back to RAM otherwise, with a warning above 500 MB
 - 🔐 **E2E encrypted** — ECDH key agreement, AES-GCM-256 per chunk
+- 🛡️ **Safety number verification** — a 24-digit code both sides can compare to catch an active MITM on the signaling channel
+- 🔁 **Chunk-level resume** — retrying a failed send skips chunks the receiver already has
+- 👥 **Multi-peer rooms** — up to 6 devices in one room, full mesh, files broadcast to everyone
+- 💬 **Text / clipboard messages** — send a quick message without picking a file
 - ⚡ **3× parallel channels** — maximises throughput over the WebRTC data channel
-- 📱 **PWA** — installable, offline-capable app shell
+- 📱 **PWA** — installable, offline-capable app shell, with Android/Chrome share-sheet integration
 - 🔍 **Nearby device detection** — auto-discovers devices on the same network
 - 🔗 **Share link** — share a direct join link instead of the room code
 - 📋 **QR code** — scan to join from a phone
@@ -171,9 +175,9 @@ Open [http://localhost:3000](http://localhost:3000) in two browser tabs or on tw
 See [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues are labelled [`good first issue`](../../issues?q=label%3A%22good+first+issue%22).
 
 The most wanted contributions:
-- **Streaming disk writes** — remove the RAM limitation on large files
-- **Transfer resume** — pick up where you left off after a connection drop
-- **Text / clipboard sharing**
+- **Full reconnect resume** — current resume only survives a WebRTC-level hiccup where the signaling WebSocket (and so the peerId) stays the same; it doesn't survive a real network drop, since the signaling server assigns a fresh clientId per connection. Would need a stable device identity exchanged alongside the ECDH handshake.
+- **iOS share-sheet support** — the Web Share Target integration is Android/Chrome only; iOS Safari doesn't support it
+- **SFU/relay topology option** — mesh rooms are O(N²) connections; fine at small N, but a relay-based mode would scale further
 
 ## Project Structure
 
@@ -181,10 +185,13 @@ The most wanted contributions:
 zapit/
 ├── frontend/               # Next.js 14 app
 │   ├── app/                # Routes: /, /privacy, /terms, error boundary
-│   ├── components/         # UI: rooms, transfer, discovery, footer
+│   ├── components/         # UI: rooms, transfer, discovery, safety number, footer
+│   ├── public/sw.js        # PWA shell cache + Web Share Target handler
 │   └── lib/
-│       ├── webrtc/         # peer-connection.ts, transfer-engine.ts, crypto.ts
-│       └── signaling-client.ts
+│       ├── webrtc/         # peer-connection.ts, transfer-engine.ts, crypto.ts, disk-writer.ts
+│       ├── signaling-client.ts
+│       ├── share-target.ts # reads files handed off from the OS share sheet
+│       └── peer-label.ts
 ├── signaling-server/
 │   └── src/
 │       ├── index.ts        # WebSocket server + /health endpoint
@@ -202,12 +209,15 @@ zapit/
 
 ## Roadmap
 
-- [ ] Streaming disk writes (remove RAM ceiling)
-- [ ] Transfer resume after disconnect
-- [ ] Text / clipboard sharing
-- [ ] Multi-peer rooms (broadcast mode)
-- [ ] Safety number verification (TOFU key pinning)
-- [ ] Mobile share-sheet integration
+- [x] Streaming disk writes (File System Access API, with in-memory fallback)
+- [x] Chunk-level transfer resume (same signaling connection only — see Contributing)
+- [x] Text / clipboard sharing
+- [x] Multi-peer rooms (full mesh, up to 6 devices)
+- [x] Safety number verification
+- [x] Mobile share-sheet integration (Android/Chrome)
+- [ ] Full reconnect resume surviving a real network drop
+- [ ] iOS share-sheet support
+- [ ] SFU/relay topology for larger rooms
 
 ## License
 
