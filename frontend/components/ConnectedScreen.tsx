@@ -70,7 +70,7 @@ export function ConnectedScreen({
       await onSend(staged);
       setStaged([]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Transfer failed — try again');
+      setError(e instanceof Error ? e.message : 'Transfer failed — hit Send to resume, it will skip what already arrived');
     } finally {
       setSending(false);
     }

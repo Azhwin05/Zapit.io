@@ -20,17 +20,19 @@ const ACCEPT_TIMEOUT_MS    = 10_000;            // A3: 10 s accept timeout
 //   [4 bytes] chunkIndex     uint32-BE
 //   [4 bytes] crc32          int32-BE   CRC32 of plaintext chunk
 //   [4 bytes] totalChunks    uint32-BE
-//   [1 byte]  flags          bit0=last, bit1=manifest, bit2=accept, bit3=error
+//   [1 byte]  flags          bit0=last, bit1=manifest, bit2=accept, bit3=error,
+//                            bit4=resume-response
 //   [rest]    plaintext payload
 //
 // Wire: [12-byte IV][AES-GCM(above)]
 
 const HDR = 17;
 
-const FLAG_LAST     = 0b00000001;
-const FLAG_MANIFEST = 0b00000010;
-const FLAG_ACCEPT   = 0b00000100;
-const FLAG_ERROR    = 0b00001000;
+const FLAG_LAST            = 0b00000001;
+const FLAG_MANIFEST        = 0b00000010;
+const FLAG_ACCEPT          = 0b00000100;
+const FLAG_ERROR           = 0b00001000;
+const FLAG_RESUME_RESPONSE = 0b00010000;
 
 function encodeHeader(
   transferIndex: number,
@@ -116,9 +118,22 @@ type ErrorCb    = (msg: string) => void;
 
 // ─── Sender ──────────────────────────────────────────────────────────────────
 
+// How long to wait after accept for resume-response frames before starting to
+// send chunks. Resume-responses are sent by the receiver on the same ordered
+// channel immediately after accept, so on any real connection they arrive
+// well within this window — this is a same-session-reconnect mechanism, not
+// a network-latency-sensitive one.
+const RESUME_INFO_GRACE_MS = 150;
+
 export class FileSender {
   private acceptPromise: Promise<void> | null = null;
   private resolveAccept: (() => void) | null = null;
+  // Chunk indices the receiver already has, per transferIndex — populated by
+  // resume-response frames relayed from FileReceiver via ZapitPeer. Lets a
+  // retried sendFiles() (same files, same order, so same transferIndex
+  // assignment) skip re-sending chunks the receiver kept from a prior attempt
+  // within the same browser session.
+  private skipMap = new Map<number, Set<number>>();
 
   constructor(
     private readonly channels: RTCDataChannel[],
@@ -130,6 +145,7 @@ export class FileSender {
     // A4: Reset accept handshake so each sendFiles() call starts fresh.
     this.acceptPromise = null;
     this.resolveAccept = null;
+    this.skipMap.clear();
 
     const manifest: FileManifestEntry[] = files.map((f) => ({
       name: f.name,
@@ -144,6 +160,7 @@ export class FileSender {
 
     // A3: Wait for receiver's transfer-accept (times out after 10 s).
     await this.waitForAccept();
+    await new Promise((r) => setTimeout(r, RESUME_INFO_GRACE_MS));
 
     // Send files in parallel; each file distributes its chunks across all channels.
     await Promise.all(files.map((file, i) => this.sendOneFile(file, i)));
@@ -151,6 +168,12 @@ export class FileSender {
 
   signalAccept(): void {
     this.resolveAccept?.();
+  }
+
+  // Called (via ZapitPeer) when the receiver reports it already has some
+  // chunks for this transferIndex from a prior attempt.
+  applyResumeInfo(transferIndex: number, haveIndices: number[]): void {
+    this.skipMap.set(transferIndex, new Set(haveIndices));
   }
 
   // A3: accept timeout — rejects if the receiver doesn't acknowledge within 10 s.
@@ -171,11 +194,14 @@ export class FileSender {
   private async sendOneFile(file: File, transferIndex: number): Promise<void> {
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE) || 1;
     const startTime   = Date.now();
+    const alreadyHave = this.skipMap.get(transferIndex) ?? new Set<number>();
 
-    // Encrypt all chunks in parallel — AES-GCM is hardware-accelerated; parallelising
-    // here ensures the send loop is never stalled waiting for crypto.
+    // Encrypt all chunks the receiver doesn't already have in parallel —
+    // AES-GCM is hardware-accelerated; parallelising here ensures the send
+    // loop is never stalled waiting for crypto.
     const encFrames = await Promise.all(
       Array.from({ length: totalChunks }, async (_, ci) => {
+        if (alreadyHave.has(ci)) return null;
         const plain  = new Uint8Array(await file.slice(ci * CHUNK_SIZE, (ci + 1) * CHUNK_SIZE).arrayBuffer());
         const crc    = CRC32.buf(plain as unknown as number[]) >>> 0; // A9: crc-32 type compat
         const isLast = ci === totalChunks - 1;
@@ -184,12 +210,18 @@ export class FileSender {
       }),
     );
 
-    // Send round-robin across channels with per-channel backpressure.
-    let bytesDone = 0;
+    // Send round-robin across channels with per-channel backpressure. Chunks
+    // already on the receiver (from a resumed transfer) are skipped, but
+    // still counted toward progress so the UI reflects true completion.
+    let bytesDone = alreadyHave.size * CHUNK_SIZE;
     for (let ci = 0; ci < totalChunks; ci++) {
-      const ch = this.channels[ci % NUM_CHANNELS];
-      await this.sendWithBackpressure(ch, encFrames[ci].data);
-      bytesDone += encFrames[ci].size;
+      const frame = encFrames[ci];
+      const isLast = ci === totalChunks - 1;
+      if (frame) {
+        const ch = this.channels[ci % NUM_CHANNELS];
+        await this.sendWithBackpressure(ch, frame.data);
+        bytesDone += frame.size;
+      }
       const elapsed = (Date.now() - startTime) / 1000;
       const bps     = bytesDone / Math.max(elapsed, 0.001);
       this.onProgress({
@@ -198,10 +230,10 @@ export class FileSender {
         chunksTotal:   totalChunks,
         chunksDone:    ci + 1,
         bytesTotal:    file.size,
-        bytesDone,
+        bytesDone:     Math.min(bytesDone, file.size),
         throughputBps: bps,
         etaSeconds:    (file.size - bytesDone) / Math.max(bps, 1),
-        done:          encFrames[ci].isLast,
+        done:          isLast,
         direction:     'send',
       });
     }
@@ -253,10 +285,11 @@ export class FileSender {
 
 // ─── Receiver ────────────────────────────────────────────────────────────────
 
-interface PendingTransfer {
+export interface PendingTransfer {
   manifest:      FileManifestEntry;
   writer:        DiskWriter | null; // set when streaming straight to disk; null = in-memory path
   memChunks:     Map<number, Uint8Array>;
+  receivedIndices: Set<number>; // tracked on both paths — dedup + resume-response source
   totalChunks:   number | null;
   receivedCount: number;
   bytesDone:     number;
@@ -264,7 +297,22 @@ interface PendingTransfer {
 }
 
 export class FileReceiver {
-  private pending:       Map<number, PendingTransfer> = new Map();
+  // Resume support: this Map can be supplied by the caller (see `resumeCache`
+  // below) and reused across a new FileReceiver instance for the *same*
+  // signaling peerId, so partial progress survives a WebRTC-level hiccup
+  // (e.g. a data channel closing, an ICE renegotiation) that doesn't tear
+  // down the underlying signaling WebSocket connection.
+  //
+  // IMPORTANT — this does NOT survive a full network drop / reconnect: the
+  // signaling server assigns a fresh random clientId to every new WebSocket
+  // connection (see signaling-server/src/index.ts — `randomUUID()` per
+  // connection, no session persistence), so a real Wi-Fi blip or tab
+  // reconnect gets a brand-new peerId and this cache is never matched to it.
+  // Surviving that case would need a stable identity that outlives the
+  // signaling connection (e.g. a client-generated device id exchanged
+  // alongside the ECDH handshake) — not implemented; flagged as follow-up
+  // work rather than silently not working.
+  private pending:       Map<number, PendingTransfer>;
   private manifests:     FileManifestEntry[] = [];
   private earlyFrames:   Array<{ raw: ParsedFrame }> = [];
   private manifestReady  = false;
@@ -284,13 +332,25 @@ export class FileReceiver {
     // so received files stream to disk instead of buffering in RAM. Optional —
     // omitted or returning null keeps the original in-memory behaviour.
     private readonly getSaveDirectory: () => FileSystemDirectoryHandle | null = () => null,
+    // Shared Map instance for same-session resume (see class doc above).
+    resumeCache?: Map<number, PendingTransfer>,
   ) {
     this.onAcceptCb = onAccept;
+    this.pending = resumeCache ?? new Map();
   }
+
+  // Relays resume-response frames to whoever is driving the current send
+  // attempt (ZapitPeer wires this to FileSender.applyResumeInfo). No-op by
+  // default — resume-response frames only matter mid-transfer.
+  private onResumeInfoCb: (transferIndex: number, have: number[]) => void = () => {};
 
   // A5: update accept callback without recreating the receiver (preserves in-progress state).
   setOnAccept(cb: (ch: RTCDataChannel) => void): void {
     this.onAcceptCb = cb;
+  }
+
+  setOnResumeInfo(cb: (transferIndex: number, have: number[]) => void): void {
+    this.onResumeInfoCb = cb;
   }
 
   // All frames decrypt concurrently (AES-GCM is hardware-accelerated and parallelises well).
@@ -332,6 +392,14 @@ export class FileReceiver {
 
       this.manifestReady = true;
       await this.sendAccept(replyChannel);
+      // Resume: for any file we already have partial progress on (from before
+      // a same-peerId renegotiation — see the `pending` field doc above),
+      // tell the sender which chunks to skip.
+      for (const [ti, pt] of Array.from(this.pending.entries())) {
+        if (pt.receivedIndices.size > 0) {
+          await this.sendResumeResponse(ti, Array.from(pt.receivedIndices), replyChannel);
+        }
+      }
       this.onAcceptCb(replyChannel);
       for (const { raw } of this.earlyFrames) await this.processChunk(raw, replyChannel);
       this.earlyFrames = [];
@@ -341,6 +409,17 @@ export class FileReceiver {
     // ── Control: accept echo ──────────────────────────────────────────────────
     if (frame.flags & FLAG_ACCEPT) {
       this.onAcceptCb(replyChannel);
+      return;
+    }
+
+    // ── Control: resume-response (relayed to the sender side, see ZapitPeer) ──
+    if (frame.flags & FLAG_RESUME_RESPONSE) {
+      try {
+        const { transferIndex, have } = JSON.parse(new TextDecoder().decode(frame.payload)) as {
+          transferIndex: number; have: number[];
+        };
+        this.onResumeInfoCb(transferIndex, have);
+      } catch { /* ignore malformed resume-response */ }
       return;
     }
 
@@ -386,12 +465,20 @@ export class FileReceiver {
       const manifest = this.manifests[ti] ?? { name: `file-${ti}`, size: 0, type: 'application/octet-stream' };
       // Writers are pre-created synchronously in handleFrame's manifest branch
       // (awaited before any chunk is processed) — no async race here.
-      pt = { manifest, writer: this.preparedWriters.get(ti) ?? null, memChunks: new Map(), totalChunks: null, receivedCount: 0, bytesDone: 0, startTime: Date.now() };
+      pt = {
+        manifest, writer: this.preparedWriters.get(ti) ?? null, memChunks: new Map(),
+        receivedIndices: new Set(), totalChunks: null, receivedCount: 0, bytesDone: 0, startTime: Date.now(),
+      };
       this.preparedWriters.delete(ti);
       this.pending.set(ti, pt);
     }
 
     if (frame.flags & FLAG_LAST) pt.totalChunks = frame.chunkIndex + 1;
+
+    // Duplicate chunk (e.g. a retransmit racing a resume) — already applied,
+    // don't double-count or double-write it.
+    if (pt.receivedIndices.has(frame.chunkIndex)) return;
+    pt.receivedIndices.add(frame.chunkIndex);
 
     if (pt.writer) {
       try {
@@ -467,5 +554,12 @@ export class FileReceiver {
   private async sendAccept(ch: RTCDataChannel): Promise<void> {
     if (ch.readyState !== 'open') return;
     ch.send(toSendable(await encrypt(this.sessionKey, encodeHeader(0xfffffffe, 0, 0, 1, FLAG_ACCEPT))));
+  }
+
+  private async sendResumeResponse(transferIndex: number, have: number[], ch: RTCDataChannel): Promise<void> {
+    if (ch.readyState !== 'open') return;
+    const payload = new TextEncoder().encode(JSON.stringify({ transferIndex, have }));
+    const hdr = encodeHeader(0xfffffffe, 0, 0, 1, FLAG_RESUME_RESPONSE);
+    ch.send(toSendable(await encrypt(this.sessionKey, concat(hdr, payload))));
   }
 }

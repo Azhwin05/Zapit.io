@@ -13,7 +13,7 @@ import { ConnectedScreen } from '@/components/ConnectedScreen';
 import { TransferScreen } from '@/components/TransferScreen';
 import { AppFooter } from '@/components/AppFooter';
 import type { TurnCredentials } from '@/lib/webrtc/peer-connection';
-import type { TransferProgress, ReceivedResult } from '@/lib/webrtc/transfer-engine';
+import type { TransferProgress, ReceivedResult, PendingTransfer } from '@/lib/webrtc/transfer-engine';
 
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_URL ?? 'ws://localhost:8787';
@@ -52,6 +52,10 @@ export default function HomePage() {
   const myClientIdRef = useRef<string | null>(null);
   const activeRoomRef = useRef<string | null>(null);
   const saveDirRef     = useRef<FileSystemDirectoryHandle | null>(null);
+  // Per-peerId resume state — see PeerConnectionCallbacks.getResumeCache doc
+  // for exactly what this does and doesn't survive (same-peerId renegotiation
+  // only, not a full signaling reconnect, which always gets a new peerId).
+  const resumeCachesRef = useRef<Map<string, Map<number, PendingTransfer>>>(new Map());
 
   const updateTransfer = useCallback((peerId: string, p: TransferProgress) => {
     setTransfers((prev) => {
@@ -77,6 +81,10 @@ export default function HomePage() {
   const removePeer = useCallback((peerId: string) => {
     peersRef.current.get(peerId)?.close();
     peersRef.current.delete(peerId);
+    // A real disconnect always gets a new peerId on reconnect (the signaling
+    // server assigns a fresh clientId per connection), so a departed peerId's
+    // resume cache will never be matched again — drop it rather than leak it.
+    resumeCachesRef.current.delete(peerId);
     setConnectedPeerIds((prev) => prev.filter((id) => id !== peerId));
     setTransfers((prev) => prev.filter((t) => t.peerId !== peerId));
     setReceivedFiles((prev) => prev.filter((r) => r.peerId !== peerId));
@@ -87,8 +95,12 @@ export default function HomePage() {
   const connectToPeer = useCallback(
     async (peerId: string, role: 'offerer' | 'answerer') => {
       if (!sigRef.current) return;
-      // Reconnecting to the same peerId (rare — e.g. a stale offer race) replaces
-      // the existing link for that peer only; other peers are untouched.
+      // Reconnecting to the same peerId (rare — e.g. a stale offer race, or an
+      // app-level retry after a channel-level failure while the signaling
+      // connection stayed up) replaces the existing link for that peer only;
+      // other peers are untouched. The resume cache is kept (not cleared)
+      // across this replacement, which is exactly what lets a resumed
+      // transfer skip chunks the receiver already has.
       peersRef.current.get(peerId)?.close();
 
       const peer = new ZapitPeer(sigRef.current, peerId, role, turnCredsRef.current, {
@@ -96,6 +108,11 @@ export default function HomePage() {
         onFileReceived:    (r) => handleFileReceived(peerId, r),
         onError:           (msg) => setStatusMsg(msg),
         getSaveDirectory:  () => saveDirRef.current,
+        getResumeCache:    () => {
+          let cache = resumeCachesRef.current.get(peerId);
+          if (!cache) { cache = new Map(); resumeCachesRef.current.set(peerId, cache); }
+          return cache;
+        },
         onSafetyNumber:    (sn) => setSafetyNumbers((prev) => ({ ...prev, [peerId]: sn })),
         onStateChange:  (state) => {
           // Guard against stale callbacks from a superseded connection to this peerId.
@@ -282,6 +299,7 @@ export default function HomePage() {
   const handleDisconnect = useCallback(() => {
     for (const peer of Array.from(peersRef.current.values())) peer.close();
     peersRef.current.clear();
+    resumeCachesRef.current.clear();
     sigRef.current?.leaveRoom();
     activeRoomRef.current = null;
     setStatus('disconnected');

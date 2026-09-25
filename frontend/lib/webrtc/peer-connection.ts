@@ -1,7 +1,7 @@
 'use client';
 
 import { generateEcdhPair, exportEcdhPublicKey, deriveAesKey, computeSafetyNumber } from './crypto';
-import { FileSender, FileReceiver, NUM_CHANNELS, type TransferProgress, type ReceivedResult } from './transfer-engine';
+import { FileSender, FileReceiver, NUM_CHANNELS, type TransferProgress, type ReceivedResult, type PendingTransfer } from './transfer-engine';
 import type { SignalingClient } from '../signaling-client';
 
 export interface TurnCredentials {
@@ -32,6 +32,13 @@ export interface PeerConnectionCallbacks {
   // identical safety number, which the user can manually compare to detect
   // an active MITM on the signaling channel (see SECURITY.md).
   onSafetyNumber?: (safetyNumber: string) => void;
+  // Returns a Map the caller keeps alive per peerId, so FileReceiver's
+  // in-progress state survives a new ZapitPeer/FileReceiver being created for
+  // the same peerId (e.g. after an app-level retry) — see FileReceiver's
+  // `pending` doc for what this does and does NOT cover (it does not survive
+  // a full signaling reconnect, which gets a new peerId). Omit for the
+  // original always-fresh behaviour.
+  getResumeCache?: () => Map<number, PendingTransfer>;
 }
 
 export class ZapitPeer {
@@ -105,6 +112,7 @@ export class ZapitPeer {
         this.callbacks.onError,
         () => {}, // onAccept — only relevant on sender side; set via setOnAccept in sendFiles
         this.callbacks.getSaveDirectory,
+        this.callbacks.getResumeCache?.(),
       );
     }
 
@@ -182,10 +190,12 @@ export class ZapitPeer {
       this.receiver = new FileReceiver(
         this.sessionKey, this.callbacks.onProgress, this.callbacks.onFileReceived,
         this.callbacks.onError, () => sender.signalAccept(), this.callbacks.getSaveDirectory,
+        this.callbacks.getResumeCache?.(),
       );
     } else {
       this.receiver.setOnAccept(() => sender.signalAccept());
     }
+    this.receiver.setOnResumeInfo((ti, have) => sender.applyResumeInfo(ti, have));
 
     await this.sender.sendFiles(files);
   }
