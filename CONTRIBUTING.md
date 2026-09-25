@@ -16,13 +16,13 @@ Zapit does one thing: transfer files between two browsers, privately, without a 
 
 ```bash
 # 1. Fork and clone
-git clone https://github.com/YOUR_USERNAME/zapit.git
-cd zapit
+git clone https://github.com/Azhwin05/Zapit.io.git
+cd Zapit.io
 
 # 2. Start the signaling server
 cd signaling-server
 npm install
-cp .env.example .env    # edit TURN_SECRET, TURN_HOST
+cp .env.example .env    # optional: add METERED_API_KEY / METERED_API_HOST for TURN
 npm run dev
 
 # 3. Start the frontend (separate terminal)

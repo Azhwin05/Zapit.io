@@ -1,12 +1,22 @@
 version: '3.9'
 
-# Self-hosting Zapit — signaling server + TURN relay on one machine.
-# The frontend is a static Next.js build best served from Vercel (free) or
-# any static host. See README for full self-hosting instructions.
+# Self-hosting Zapit's signaling server. The frontend is a static Next.js
+# build best served from Vercel (free) or any static host. See README for
+# full self-hosting instructions.
 #
-# Quick start:
+# TURN relay: by default this stack relies on Metered.ca's hosted TURN
+# service (set METERED_API_KEY / METERED_API_HOST in signaling-server/.env)
+# — no extra container needed. The optional `coturn` service below is for
+# self-hosting your own TURN relay instead; it's gated behind a Compose
+# profile so it does NOT start by default.
+#
+# Quick start (Metered.ca TURN, recommended):
 #   cp signaling-server/.env.example signaling-server/.env   # fill in values
 #   docker compose up -d
+#
+# Quick start (self-hosted TURN via coturn instead):
+#   # fill in coturn/turnserver.conf placeholders first — see README
+#   docker compose --profile self-hosted-turn up -d
 
 services:
   signaling:
@@ -29,6 +39,7 @@ services:
 
   coturn:
     image: coturn/coturn:latest
+    profiles: ["self-hosted-turn"]
     restart: unless-stopped
     network_mode: host          # required for TURN to work correctly
     volumes:

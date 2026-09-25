@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/WebRTC-P2P-orange" alt="WebRTC" />
   <img src="https://img.shields.io/badge/encryption-ECDH%20%2B%20AES--GCM--256-green" alt="Encryption" />
   <img src="https://img.shields.io/badge/self--hostable-yes-brightgreen" alt="Self hostable" />
-  <img src="https://img.shields.io/github/stars/YOUR_USERNAME/zapit?style=social" alt="GitHub Stars" />
+  <img src="https://img.shields.io/github/stars/Azhwin05/Zapit.io?style=social" alt="GitHub Stars" />
 </p>
 
 <h1 align="center">Zapit</h1>
@@ -86,8 +86,8 @@ Everything you need to run Zapit yourself, for free.
 ### Option A — Docker Compose (recommended)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/zapit.git
-cd zapit
+git clone https://github.com/Azhwin05/Zapit.io.git
+cd Zapit.io
 
 # Configure
 cp signaling-server/.env.example signaling-server/.env
