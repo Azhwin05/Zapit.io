@@ -1,7 +1,12 @@
 import type { Client, Room } from './types';
 
 const ROOM_TTL_MS        = 10 * 60 * 1000; // idle room purge
-const MAX_PEERS_PER_ROOM = 2;
+// Mesh topology — every peer connects directly to every other peer, so cost
+// grows O(N^2) in both RTCPeerConnections per client and signaling fan-out
+// (join/leave and offer/answer/ICE routing already loop over room.clients,
+// see index.ts). 6 peers = 15 pairwise links, comfortably under the
+// per-IP signaling rate limit (500 msgs/min) for a normal connect sequence.
+const MAX_PEERS_PER_ROOM = 6;
 
 // H3 / A15: Global cap aligned just below Fly.io's soft_limit (400) so the app
 // can reject gracefully before Fly drops connections at the hard_limit (500).

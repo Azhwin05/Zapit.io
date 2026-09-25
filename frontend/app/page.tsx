@@ -5,6 +5,7 @@ import { generateRoomCode } from '@/lib/room-code';
 import { SignalingClient } from '@/lib/signaling-client';
 import { ZapitPeer } from '@/lib/webrtc/peer-connection';
 import { pickSaveDirectory, isFileSystemAccessSupported } from '@/lib/webrtc/disk-writer';
+import { peerLabel } from '@/lib/peer-label';
 import { NavBar } from '@/components/NavBar';
 import { LandingScreen } from '@/components/LandingScreen';
 import { DiscoveryScreen } from '@/components/DiscoveryScreen';
@@ -24,38 +25,46 @@ interface NearbyDevice {
   roomCode: string | null;
 }
 
+// A room can hold several peers (see signaling-server's MAX_PEERS_PER_ROOM) —
+// full mesh, every browser connects directly to every other browser. State
+// that used to be single-peer (one transfer list, one safety number) is now
+// keyed by peerId so it can't collide across simultaneous connections.
+// transferIndex alone isn't unique across peers — it's only scoped to one
+// sender's sendFiles() call — so UI state pairs it with peerId.
+
 export default function HomePage() {
   const [roomCode, setRoomCode]             = useState('');
   const [shareUrl, setShareUrl]             = useState('');
   const [status, setStatus]                 = useState<ConnectionStatus>('idle');
   const [statusMsg, setStatusMsg]           = useState('');
   const [nearbyDevices, setNearbyDevices]   = useState<NearbyDevice[]>([]);
-  const [transfers, setTransfers]           = useState<TransferProgress[]>([]);
-  const [receivedFiles, setReceivedFiles]   = useState<ReceivedResult[]>([]);
+  const [connectedPeerIds, setConnectedPeerIds] = useState<string[]>([]);
+  const [transfers, setTransfers]           = useState<(TransferProgress & { peerId: string })[]>([]);
+  const [receivedFiles, setReceivedFiles]   = useState<(ReceivedResult & { peerId: string })[]>([]);
   const [hasStarted, setHasStarted]         = useState(false);
   const [saveDirName, setSaveDirName]       = useState<string | null>(null);
-  const [safetyNumber, setSafetyNumber]     = useState<string | null>(null);
-  const [safetyVerified, setSafetyVerified] = useState(false);
+  const [safetyNumbers, setSafetyNumbers]   = useState<Record<string, string>>({});
+  const [safetyVerified, setSafetyVerified] = useState<Record<string, boolean>>({});
 
   const sigRef        = useRef<SignalingClient | null>(null);
-  const peerRef       = useRef<ZapitPeer | null>(null);
+  const peersRef       = useRef<Map<string, ZapitPeer>>(new Map());
   const turnCredsRef  = useRef<TurnCredentials | null>(null);
   const myClientIdRef = useRef<string | null>(null);
   const activeRoomRef = useRef<string | null>(null);
   const saveDirRef     = useRef<FileSystemDirectoryHandle | null>(null);
 
-  const updateTransfer = useCallback((p: TransferProgress) => {
+  const updateTransfer = useCallback((peerId: string, p: TransferProgress) => {
     setTransfers((prev) => {
-      const idx = prev.findIndex((t) => t.transferIndex === p.transferIndex);
-      if (idx === -1) return [...prev, p];
+      const idx = prev.findIndex((t) => t.peerId === peerId && t.transferIndex === p.transferIndex);
+      if (idx === -1) return [...prev, { ...p, peerId }];
       const next = [...prev];
-      next[idx] = p;
+      next[idx] = { ...p, peerId };
       return next;
     });
   }, []);
 
-  const handleFileReceived = useCallback((result: ReceivedResult) => {
-    setReceivedFiles((prev) => [result, ...prev]);
+  const handleFileReceived = useCallback((peerId: string, result: ReceivedResult) => {
+    setReceivedFiles((prev) => [{ ...result, peerId }, ...prev]);
   }, []);
 
   const handleChooseSaveFolder = useCallback(async () => {
@@ -65,38 +74,50 @@ export default function HomePage() {
     setSaveDirName(dir.name);
   }, []);
 
+  const removePeer = useCallback((peerId: string) => {
+    peersRef.current.get(peerId)?.close();
+    peersRef.current.delete(peerId);
+    setConnectedPeerIds((prev) => prev.filter((id) => id !== peerId));
+    setTransfers((prev) => prev.filter((t) => t.peerId !== peerId));
+    setReceivedFiles((prev) => prev.filter((r) => r.peerId !== peerId));
+    setSafetyNumbers((prev) => { const n = { ...prev }; delete n[peerId]; return n; });
+    setSafetyVerified((prev) => { const n = { ...prev }; delete n[peerId]; return n; });
+  }, []);
+
   const connectToPeer = useCallback(
     async (peerId: string, role: 'offerer' | 'answerer') => {
       if (!sigRef.current) return;
-      peerRef.current?.close();
-      setSafetyNumber(null);
-      setSafetyVerified(false);
+      // Reconnecting to the same peerId (rare — e.g. a stale offer race) replaces
+      // the existing link for that peer only; other peers are untouched.
+      peersRef.current.get(peerId)?.close();
 
       const peer = new ZapitPeer(sigRef.current, peerId, role, turnCredsRef.current, {
-        onProgress:        updateTransfer,
-        onFileReceived:    handleFileReceived,
+        onProgress:        (p) => updateTransfer(peerId, p),
+        onFileReceived:    (r) => handleFileReceived(peerId, r),
         onError:           (msg) => setStatusMsg(msg),
         getSaveDirectory:  () => saveDirRef.current,
-        onSafetyNumber:    (sn) => setSafetyNumber(sn),
+        onSafetyNumber:    (sn) => setSafetyNumbers((prev) => ({ ...prev, [peerId]: sn })),
         onStateChange:  (state) => {
-          // Guard against stale callbacks from a superseded peer (e.g. peer1 fires
-          // 'closed' after connectToPeer replaced it with peer2).
-          if (peerRef.current !== peer) return;
-          if (state === 'connected') setStatus('connected');
+          // Guard against stale callbacks from a superseded connection to this peerId.
+          if (peersRef.current.get(peerId) !== peer) return;
+          if (state === 'connected') {
+            setStatus('connected');
+            setConnectedPeerIds((prev) => (prev.includes(peerId) ? prev : [...prev, peerId]));
+          }
           if (state === 'disconnected' || state === 'failed' || state === 'closed') {
-            setStatus('disconnected');
-            setStatusMsg('Peer disconnected');
+            removePeer(peerId);
+            setStatusMsg('A peer disconnected');
           }
         },
       });
-      peerRef.current = peer;
+      peersRef.current.set(peerId, peer);
 
       if (role === 'offerer') {
         setStatus('connecting');
         await peer.initiate();
       }
     },
-    [updateTransfer, handleFileReceived],
+    [updateTransfer, handleFileReceived, removePeer],
   );
 
   useEffect(() => {
@@ -158,28 +179,23 @@ export default function HomePage() {
 
         case 'offer': {
           await connectToPeer(event.from, 'answerer');
-          const peer = peerRef.current;
+          const peer = peersRef.current.get(event.from);
           if (peer) await peer.handleOffer(event.payload);
           break;
         }
 
         case 'answer':
-          await peerRef.current?.handleAnswer(event.payload);
+          await peersRef.current.get(event.from)?.handleAnswer(event.payload);
           break;
 
         case 'ice-candidate':
-          await peerRef.current?.handleIceCandidate(event.payload);
+          await peersRef.current.get(event.from)?.handleIceCandidate(event.payload);
           break;
 
         case 'peer-left':
-          setStatus('disconnected');
+          removePeer(event.peerId);
           setStatusMsg('Peer left the room');
-          peerRef.current?.close();
-          peerRef.current = null;
-          setTransfers([]);
-          setReceivedFiles([]);
-          setSafetyNumber(null);
-          setSafetyVerified(false);
+          setStatus((s) => (peersRef.current.size > 0 ? s : 'disconnected'));
           break;
 
         case 'room-full':
@@ -201,7 +217,8 @@ export default function HomePage() {
     return () => {
       unsub();
       sig.destroy();
-      peerRef.current?.close();
+      for (const peer of Array.from(peersRef.current.values())) peer.close();
+      peersRef.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -250,28 +267,36 @@ export default function HomePage() {
     connectToPeer(device.id, amOfferer ? 'offerer' : 'answerer');
   }, [connectToPeer, handleJoinCode]);
 
+  // Broadcasts to every connected peer — matches the AirDrop-style expectation
+  // that dropping a file sends it to everyone in the room, not just one pick.
   const handleFiles = useCallback(async (files: File[]): Promise<void> => {
-    if (!peerRef.current) throw new Error('Not connected to a peer');
-    await peerRef.current.sendFiles(files);
+    const peers = Array.from(peersRef.current.values());
+    if (peers.length === 0) throw new Error('Not connected to a peer');
+    const results = await Promise.allSettled(peers.map((p) => p.sendFiles(files)));
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length === results.length) {
+      throw new Error('Failed to send to all connected peers');
+    }
   }, []);
 
   const handleDisconnect = useCallback(() => {
-    peerRef.current?.close();
-    peerRef.current = null;
+    for (const peer of Array.from(peersRef.current.values())) peer.close();
+    peersRef.current.clear();
     sigRef.current?.leaveRoom();
     activeRoomRef.current = null;
     setStatus('disconnected');
     setStatusMsg('');
+    setConnectedPeerIds([]);
     setTransfers([]);
     setReceivedFiles([]);
-    setSafetyNumber(null);
-    setSafetyVerified(false);
+    setSafetyNumbers({});
+    setSafetyVerified({});
   }, []);
 
   // ── Screen selection ──────────────────────────────────────────────────────
 
   const hasActiveTransfer = transfers.some((t) => !t.done) || receivedFiles.length > 0;
-  const isConnected       = status === 'connected';
+  const isConnected       = status === 'connected' && connectedPeerIds.length > 0;
   const isTransferring    = isConnected && hasActiveTransfer;
 
   let screen: 'landing' | 'discovery' | 'connected' | 'transferring';
@@ -284,6 +309,15 @@ export default function HomePage() {
   } else {
     screen = 'discovery';
   }
+
+  const safetyList = connectedPeerIds
+    .filter((id) => safetyNumbers[id])
+    .map((id) => ({
+      peerId:       id,
+      peerLabel:    peerLabel(id),
+      safetyNumber: safetyNumbers[id],
+      verified:     !!safetyVerified[id],
+    }));
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -315,11 +349,11 @@ export default function HomePage() {
       {screen === 'connected' && (
         <ConnectedScreen
           onSend={handleFiles}
+          connectedPeerIds={connectedPeerIds}
           saveDirName={saveDirName}
           onChooseSaveFolder={isFileSystemAccessSupported() ? handleChooseSaveFolder : undefined}
-          safetyNumber={safetyNumber}
-          safetyVerified={safetyVerified}
-          onVerifySafety={() => setSafetyVerified(true)}
+          safetyList={safetyList}
+          onVerifySafety={(peerId) => setSafetyVerified((prev) => ({ ...prev, [peerId]: true }))}
         />
       )}
 

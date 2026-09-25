@@ -4,7 +4,7 @@ Thank you for your interest. Zapit is intentionally simple — please read this 
 
 ## Philosophy
 
-Zapit does one thing: transfer files between two browsers, privately, without a server in the middle. Every change should make that one thing better. If a PR adds complexity without a clear user benefit, it will probably be declined.
+Zapit does one thing: transfer files directly between browsers (two, or a small mesh room), privately, without a server in the middle. Every change should make that one thing better. If a PR adds complexity without a clear user benefit, it will probably be declined.
 
 **We will not merge:**
 - Third-party analytics, tracking, or telemetry

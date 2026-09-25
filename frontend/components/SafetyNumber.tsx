@@ -7,6 +7,8 @@ interface SafetyNumberProps {
   safetyNumber: string;
   verified: boolean;
   onVerify: () => void;
+  /** Shown when verifying more than one peer at once (mesh rooms). */
+  label?: string;
 }
 
 /**
@@ -15,7 +17,7 @@ interface SafetyNumberProps {
  * gives users a way to close it themselves, matching Zapit's "known and
  * intentional trade-off... ease of use" framing.
  */
-export function SafetyNumber({ safetyNumber, verified, onVerify }: SafetyNumberProps) {
+export function SafetyNumber({ safetyNumber, verified, onVerify, label }: SafetyNumberProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -30,6 +32,7 @@ export function SafetyNumber({ safetyNumber, verified, onVerify }: SafetyNumberP
           <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" strokeWidth={1.5} />
         )}
         <span className="flex-grow text-sm font-medium text-on-surface">
+          {label ? `${label} — ` : ''}
           {verified ? 'Connection verified' : 'Verify this connection is secure'}
         </span>
         {expanded ? (

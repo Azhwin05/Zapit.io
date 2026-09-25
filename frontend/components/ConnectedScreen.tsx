@@ -1,20 +1,29 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
-import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert, FolderOpen, FolderCheck } from 'lucide-react';
+import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert, FolderOpen, FolderCheck, Users } from 'lucide-react';
 import { SafetyNumber } from './SafetyNumber';
+import { peerLabel } from '@/lib/peer-label';
 
 const LARGE_FILE_WARN_BYTES = 500 * 1024 * 1024; // 500 MB
 
+interface SafetyEntry {
+  peerId:       string;
+  peerLabel:    string;
+  safetyNumber: string;
+  verified:     boolean;
+}
+
 interface ConnectedScreenProps {
   onSend: (files: File[]) => Promise<void>;
+  /** Peers currently connected — mesh rooms can hold more than one. */
+  connectedPeerIds: string[];
   /** Name of the folder chosen for incoming files streamed straight to disk, if any. */
   saveDirName?: string | null;
   /** Opens the save-folder picker. Omitted entirely when the browser doesn't support it. */
   onChooseSaveFolder?: () => void;
-  safetyNumber?: string | null;
-  safetyVerified?: boolean;
-  onVerifySafety?: () => void;
+  safetyList: SafetyEntry[];
+  onVerifySafety: (peerId: string) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -31,8 +40,8 @@ function FileIcon({ file }: { file: File }) {
 }
 
 export function ConnectedScreen({
-  onSend, saveDirName, onChooseSaveFolder,
-  safetyNumber, safetyVerified, onVerifySafety,
+  onSend, connectedPeerIds, saveDirName, onChooseSaveFolder,
+  safetyList, onVerifySafety,
 }: ConnectedScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [staged,   setStaged]   = useState<File[]>([]);
@@ -87,17 +96,35 @@ export function ConnectedScreen({
             Connected and Ready
           </h1>
           <p className="text-lg text-on-surface-variant">
-            Your secure session is active. Add files below, then hit Send.
+            {connectedPeerIds.length === 1
+              ? 'Your secure session is active. Add files below, then hit Send.'
+              : `Connected to ${connectedPeerIds.length} devices. Files you send go to everyone.`}
           </p>
         </div>
 
-        {safetyNumber && (
-          <SafetyNumber
-            safetyNumber={safetyNumber}
-            verified={!!safetyVerified}
-            onVerify={() => onVerifySafety?.()}
-          />
+        {connectedPeerIds.length > 1 && (
+          <div className="w-full flex items-center gap-2 flex-wrap justify-center">
+            <Users className="w-4 h-4 text-on-surface-variant" strokeWidth={1.5} />
+            {connectedPeerIds.map((id) => (
+              <span
+                key={id}
+                className="text-xs font-medium text-on-surface-variant bg-surface-low px-2.5 py-1 rounded-full"
+              >
+                {peerLabel(id)}
+              </span>
+            ))}
+          </div>
         )}
+
+        {safetyList.map((s) => (
+          <SafetyNumber
+            key={s.peerId}
+            label={connectedPeerIds.length > 1 ? s.peerLabel : undefined}
+            safetyNumber={s.safetyNumber}
+            verified={s.verified}
+            onVerify={() => onVerifySafety(s.peerId)}
+          />
+        ))}
 
         {/* Save-folder picker — streams incoming files to disk instead of RAM */}
         {onChooseSaveFolder && (

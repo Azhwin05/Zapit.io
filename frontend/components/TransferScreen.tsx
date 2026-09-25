@@ -2,10 +2,11 @@
 
 import { FileText, Laptop, Smartphone, HardDriveDownload } from 'lucide-react';
 import type { TransferProgress, ReceivedResult } from '@/lib/webrtc/transfer-engine';
+import { peerLabel } from '@/lib/peer-label';
 
 interface TransferScreenProps {
-  transfers: TransferProgress[];
-  receivedFiles: ReceivedResult[];
+  transfers: (TransferProgress & { peerId: string })[];
+  receivedFiles: (ReceivedResult & { peerId: string })[];
   roomCode: string;
 }
 
@@ -32,6 +33,8 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
   const current = activeTransfers[0] ?? transfers[transfers.length - 1];
 
   if (!current) return null;
+
+  const peerName = peerLabel(current.peerId);
 
   const pct = current.chunksTotal > 0
     ? Math.min((current.chunksDone / current.chunksTotal) * 100, 100)
@@ -77,7 +80,7 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
             <div className="text-center">
               <p className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">Sending</p>
               <p className="font-display font-semibold text-base text-on-surface mt-0.5">
-                {current.direction === 'receive' ? 'Peer Device' : 'This Device'}
+                {current.direction === 'receive' ? peerName : 'This Device'}
               </p>
             </div>
           </div>
@@ -124,7 +127,7 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
             <div className="text-center">
               <p className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">Receiving</p>
               <p className="font-display font-semibold text-base text-on-surface mt-0.5">
-                {current.direction === 'receive' ? 'This Device' : 'Peer Device'}
+                {current.direction === 'receive' ? 'This Device' : peerName}
               </p>
             </div>
           </div>
@@ -138,11 +141,16 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
               const p = t.chunksTotal > 0 ? Math.min((t.chunksDone / t.chunksTotal) * 100, 100) : 0;
               return (
                 <div
-                  key={t.transferIndex}
+                  key={`${t.peerId}:${t.transferIndex}`}
                   className="bg-surface-white shadow-l1 rounded-xl px-4 py-3 border border-outline-variant/20
                              flex items-center gap-4"
                 >
-                  <span className="flex-grow text-sm text-on-surface truncate font-medium">{t.fileName}</span>
+                  <span className="flex-grow text-sm text-on-surface truncate font-medium">
+                    {t.fileName}
+                    <span className="text-on-surface-variant font-normal ml-1.5">
+                      · {t.direction === 'receive' ? 'from' : 'to'} {peerLabel(t.peerId)}
+                    </span>
+                  </span>
                   {t.done ? (
                     <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">Done</span>
                   ) : (
@@ -166,6 +174,9 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
               >
                 <span className="text-sm text-on-surface truncate">
                   {r.kind === 'disk' ? r.name : r.file.name}
+                  <span className="text-on-surface-variant font-normal ml-1.5">
+                    · from {peerLabel(r.peerId)}
+                  </span>
                 </span>
                 {r.kind === 'disk' ? (
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-primary shrink-0">
