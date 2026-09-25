@@ -34,6 +34,8 @@ export default function HomePage() {
   const [receivedFiles, setReceivedFiles]   = useState<ReceivedResult[]>([]);
   const [hasStarted, setHasStarted]         = useState(false);
   const [saveDirName, setSaveDirName]       = useState<string | null>(null);
+  const [safetyNumber, setSafetyNumber]     = useState<string | null>(null);
+  const [safetyVerified, setSafetyVerified] = useState(false);
 
   const sigRef        = useRef<SignalingClient | null>(null);
   const peerRef       = useRef<ZapitPeer | null>(null);
@@ -67,12 +69,15 @@ export default function HomePage() {
     async (peerId: string, role: 'offerer' | 'answerer') => {
       if (!sigRef.current) return;
       peerRef.current?.close();
+      setSafetyNumber(null);
+      setSafetyVerified(false);
 
       const peer = new ZapitPeer(sigRef.current, peerId, role, turnCredsRef.current, {
         onProgress:        updateTransfer,
         onFileReceived:    handleFileReceived,
         onError:           (msg) => setStatusMsg(msg),
         getSaveDirectory:  () => saveDirRef.current,
+        onSafetyNumber:    (sn) => setSafetyNumber(sn),
         onStateChange:  (state) => {
           // Guard against stale callbacks from a superseded peer (e.g. peer1 fires
           // 'closed' after connectToPeer replaced it with peer2).
@@ -173,6 +178,8 @@ export default function HomePage() {
           peerRef.current = null;
           setTransfers([]);
           setReceivedFiles([]);
+          setSafetyNumber(null);
+          setSafetyVerified(false);
           break;
 
         case 'room-full':
@@ -257,6 +264,8 @@ export default function HomePage() {
     setStatusMsg('');
     setTransfers([]);
     setReceivedFiles([]);
+    setSafetyNumber(null);
+    setSafetyVerified(false);
   }, []);
 
   // ── Screen selection ──────────────────────────────────────────────────────
@@ -308,6 +317,9 @@ export default function HomePage() {
           onSend={handleFiles}
           saveDirName={saveDirName}
           onChooseSaveFolder={isFileSystemAccessSupported() ? handleChooseSaveFolder : undefined}
+          safetyNumber={safetyNumber}
+          safetyVerified={safetyVerified}
+          onVerifySafety={() => setSafetyVerified(true)}
         />
       )}
 

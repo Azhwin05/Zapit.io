@@ -25,7 +25,7 @@ Zapit's encryption model is documented in the Privacy Policy. Key properties:
 
 - **ECDH P-256** key agreement: each side generates an ephemeral key pair per connection. Only public keys transit the signaling server; the AES session key is derived locally by both peers. The signaling server never sees the session key.
 - **AES-GCM-256** encryption: every chunk is encrypted with a fresh random IV. The TURN relay (if used) sees only ciphertext.
-- **Acknowledged limitation**: the design defeats passive interception but does not provide cryptographic proof against an active attacker who controls the signaling server at the moment of connection (a classic MITM during key exchange). We do not currently implement a manual safety-number verification step. This is a known and intentional trade-off for ease of use; we describe it honestly in the Privacy Policy.
+- **Mitigable limitation**: the design defeats passive interception, but ECDH alone does not provide cryptographic proof against an active attacker who controls the signaling server at the moment of connection (a classic MITM during key exchange). Once both peers connect, the app computes and displays a **safety number** (SHA-256 of both sorted public keys, shown as a 24-digit code) — if the two devices read out matching numbers, the key exchange was not intercepted. This check is **advisory, not enforced**: transfers are not blocked pending verification, matching the project's ease-of-use trade-off. Users who skip it remain exposed to the same MITM risk as before this feature existed; that's a deliberate default, not an oversight.
 
 ## Scope
 

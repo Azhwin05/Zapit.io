@@ -81,3 +81,31 @@ export async function decrypt(key: CryptoKey, frame: Uint8Array): Promise<Uint8A
 function toArrayBuffer(src: Uint8Array): ArrayBuffer {
   return src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength) as ArrayBuffer;
 }
+
+// ─── Safety number (MITM detection) ──────────────────────────────────────────
+//
+// ECDH alone defeats passive interception but not an active attacker who
+// controls the signaling server at the moment of key exchange (classic MITM —
+// see SECURITY.md). A safety number lets both users manually confirm they
+// derived the same shared key: if a MITM is substituting its own public key
+// on each side, the two users' safety numbers will not match.
+//
+// Both peers hash their two base64 public keys *sorted* (not in offerer/
+// answerer order) so both sides compute the identical digest regardless of
+// who's the offerer.
+
+export async function computeSafetyNumber(myPublicB64: string, theirPublicB64: string): Promise<string> {
+  const [a, b] = [myPublicB64, theirPublicB64].sort();
+  const bytes = new TextEncoder().encode(`${a}|${b}`);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+
+  // Format as 6 groups of 4 digits (24 digits total) from the first 12 hash
+  // bytes — short enough to read aloud or eyeball-compare, long enough that
+  // an attacker can't feasibly brute-force a colliding key pair to match it.
+  const groups: string[] = [];
+  for (let i = 0; i < 12; i += 2) {
+    const value = (digest[i] << 8) | digest[i + 1];
+    groups.push(String(value % 10000).padStart(4, '0'));
+  }
+  return groups.join(' ');
+}

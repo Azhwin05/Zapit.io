@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback } from 'react';
 import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert, FolderOpen, FolderCheck } from 'lucide-react';
+import { SafetyNumber } from './SafetyNumber';
 
 const LARGE_FILE_WARN_BYTES = 500 * 1024 * 1024; // 500 MB
 
@@ -11,6 +12,9 @@ interface ConnectedScreenProps {
   saveDirName?: string | null;
   /** Opens the save-folder picker. Omitted entirely when the browser doesn't support it. */
   onChooseSaveFolder?: () => void;
+  safetyNumber?: string | null;
+  safetyVerified?: boolean;
+  onVerifySafety?: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -26,7 +30,10 @@ function FileIcon({ file }: { file: File }) {
   return <FileText className="w-4 h-4 text-on-surface-variant" strokeWidth={1.5} />;
 }
 
-export function ConnectedScreen({ onSend, saveDirName, onChooseSaveFolder }: ConnectedScreenProps) {
+export function ConnectedScreen({
+  onSend, saveDirName, onChooseSaveFolder,
+  safetyNumber, safetyVerified, onVerifySafety,
+}: ConnectedScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [staged,   setStaged]   = useState<File[]>([]);
   const [sending,  setSending]  = useState(false);
@@ -83,6 +90,14 @@ export function ConnectedScreen({ onSend, saveDirName, onChooseSaveFolder }: Con
             Your secure session is active. Add files below, then hit Send.
           </p>
         </div>
+
+        {safetyNumber && (
+          <SafetyNumber
+            safetyNumber={safetyNumber}
+            verified={!!safetyVerified}
+            onVerify={() => onVerifySafety?.()}
+          />
+        )}
 
         {/* Save-folder picker — streams incoming files to disk instead of RAM */}
         {onChooseSaveFolder && (

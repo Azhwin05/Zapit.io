@@ -1,6 +1,6 @@
 'use client';
 
-import { generateEcdhPair, exportEcdhPublicKey, deriveAesKey } from './crypto';
+import { generateEcdhPair, exportEcdhPublicKey, deriveAesKey, computeSafetyNumber } from './crypto';
 import { FileSender, FileReceiver, NUM_CHANNELS, type TransferProgress, type ReceivedResult } from './transfer-engine';
 import type { SignalingClient } from '../signaling-client';
 
@@ -28,6 +28,10 @@ export interface PeerConnectionCallbacks {
   // Returns a directory handle if the user picked a save folder — streams
   // received files to disk instead of buffering them in RAM. Optional.
   getSaveDirectory?: () => FileSystemDirectoryHandle | null;
+  // Fires once the shared session key is derived — both peers compute the
+  // identical safety number, which the user can manually compare to detect
+  // an active MITM on the signaling channel (see SECURITY.md).
+  onSafetyNumber?: (safetyNumber: string) => void;
 }
 
 export class ZapitPeer {
@@ -37,6 +41,7 @@ export class ZapitPeer {
   private ecdhPair:   CryptoKeyPair | null = null;
   private sender:   FileSender  | null = null;
   private receiver: FileReceiver | null = null;
+  private myPublicKeyB64: string | null = null;
   // ICE candidates that arrived before setRemoteDescription was called are queued
   // here and drained immediately after the remote description is set. Dropping them
   // (the previous behaviour) caused intermittent connection failures on fast LANs
@@ -111,32 +116,42 @@ export class ZapitPeer {
   // ── Signaling flow ──────────────────────────────────────────────────────────
 
   async initiate(): Promise<void> {
-    this.ecdhPair = await generateEcdhPair();
-    const offer   = await this.pc.createOffer();
+    this.ecdhPair       = await generateEcdhPair();
+    this.myPublicKeyB64 = await exportEcdhPublicKey(this.ecdhPair);
+    const offer          = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
     this.sigClient.send({
       type: 'offer', to: this.peerId,
-      payload: { sdp: offer, ecdhPublicKey: await exportEcdhPublicKey(this.ecdhPair) },
+      payload: { sdp: offer, ecdhPublicKey: this.myPublicKeyB64 },
     });
   }
 
   async handleOffer(payload: { sdp: RTCSessionDescriptionInit; ecdhPublicKey: string }): Promise<void> {
-    this.ecdhPair   = await generateEcdhPair();
-    this.sessionKey = await deriveAesKey(this.ecdhPair, payload.ecdhPublicKey);
+    this.ecdhPair        = await generateEcdhPair();
+    this.myPublicKeyB64  = await exportEcdhPublicKey(this.ecdhPair);
+    this.sessionKey      = await deriveAesKey(this.ecdhPair, payload.ecdhPublicKey);
+    await this.emitSafetyNumber(payload.ecdhPublicKey);
     await this.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
     this.remoteDescSet = true;
     await this.drainCandidates();
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
-    this.sigClient.sendAnswer(this.peerId, answer, await exportEcdhPublicKey(this.ecdhPair));
+    this.sigClient.sendAnswer(this.peerId, answer, this.myPublicKeyB64);
   }
 
   async handleAnswer(payload: { sdp: RTCSessionDescriptionInit; ecdhPublicKey: string }): Promise<void> {
-    if (!this.ecdhPair) throw new Error('handleAnswer called before initiate()');
+    if (!this.ecdhPair || !this.myPublicKeyB64) throw new Error('handleAnswer called before initiate()');
     this.sessionKey = await deriveAesKey(this.ecdhPair, payload.ecdhPublicKey);
+    await this.emitSafetyNumber(payload.ecdhPublicKey);
     await this.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
     this.remoteDescSet = true;
     await this.drainCandidates();
+  }
+
+  private async emitSafetyNumber(theirPublicKeyB64: string): Promise<void> {
+    if (!this.myPublicKeyB64 || !this.callbacks.onSafetyNumber) return;
+    const safetyNumber = await computeSafetyNumber(this.myPublicKeyB64, theirPublicKeyB64);
+    this.callbacks.onSafetyNumber(safetyNumber);
   }
 
   async handleIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
