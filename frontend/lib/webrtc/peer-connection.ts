@@ -1,7 +1,7 @@
 'use client';
 
 import { generateEcdhPair, exportEcdhPublicKey, deriveAesKey } from './crypto';
-import { FileSender, FileReceiver, NUM_CHANNELS, type TransferProgress } from './transfer-engine';
+import { FileSender, FileReceiver, NUM_CHANNELS, type TransferProgress, type ReceivedResult } from './transfer-engine';
 import type { SignalingClient } from '../signaling-client';
 
 export interface TurnCredentials {
@@ -22,9 +22,12 @@ type PeerRole = 'offerer' | 'answerer';
 
 export interface PeerConnectionCallbacks {
   onProgress:    (p: TransferProgress) => void;
-  onFileReceived:(file: File) => void;
+  onFileReceived:(result: ReceivedResult) => void;
   onStateChange: (state: RTCPeerConnectionState) => void;
   onError:       (msg: string) => void;
+  // Returns a directory handle if the user picked a save folder — streams
+  // received files to disk instead of buffering them in RAM. Optional.
+  getSaveDirectory?: () => FileSystemDirectoryHandle | null;
 }
 
 export class ZapitPeer {
@@ -96,6 +99,7 @@ export class ZapitPeer {
         this.callbacks.onFileReceived,
         this.callbacks.onError,
         () => {}, // onAccept — only relevant on sender side; set via setOnAccept in sendFiles
+        this.callbacks.getSaveDirectory,
       );
     }
 
@@ -162,7 +166,7 @@ export class ZapitPeer {
     if (!this.receiver) {
       this.receiver = new FileReceiver(
         this.sessionKey, this.callbacks.onProgress, this.callbacks.onFileReceived,
-        this.callbacks.onError, () => sender.signalAccept(),
+        this.callbacks.onError, () => sender.signalAccept(), this.callbacks.getSaveDirectory,
       );
     } else {
       this.receiver.setOnAccept(() => sender.signalAccept());

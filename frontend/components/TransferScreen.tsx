@@ -1,11 +1,11 @@
 'use client';
 
-import { FileText, Laptop, Smartphone } from 'lucide-react';
-import type { TransferProgress } from '@/lib/webrtc/transfer-engine';
+import { FileText, Laptop, Smartphone, HardDriveDownload } from 'lucide-react';
+import type { TransferProgress, ReceivedResult } from '@/lib/webrtc/transfer-engine';
 
 interface TransferScreenProps {
   transfers: TransferProgress[];
-  receivedFiles: File[];
+  receivedFiles: ReceivedResult[];
   roomCode: string;
 }
 
@@ -158,20 +158,29 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
         {receivedFiles.length > 0 && (
           <div className="w-full flex flex-col gap-2 animate-slide-up">
             <p className="text-xs text-on-surface-variant font-medium uppercase tracking-wider">Received files</p>
-            {receivedFiles.map((f, i) => (
+            {receivedFiles.map((r, i) => (
               <div
                 key={i}
                 className="bg-surface-white shadow-l1 rounded-xl px-4 py-3 border border-outline-variant/20
                            flex items-center justify-between gap-3"
               >
-                <span className="text-sm text-on-surface truncate">{f.name}</span>
-                <a
-                  href={URL.createObjectURL(f)}
-                  download={f.name}
-                  className="text-xs font-semibold text-primary hover:text-primary-dim transition-colors shrink-0"
-                >
-                  Download
-                </a>
+                <span className="text-sm text-on-surface truncate">
+                  {r.kind === 'disk' ? r.name : r.file.name}
+                </span>
+                {r.kind === 'disk' ? (
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-primary shrink-0">
+                    <HardDriveDownload className="w-3.5 h-3.5" strokeWidth={1.5} />
+                    Saved to disk
+                  </span>
+                ) : (
+                  <a
+                    href={URL.createObjectURL(r.file)}
+                    download={r.file.name}
+                    className="text-xs font-semibold text-primary hover:text-primary-dim transition-colors shrink-0"
+                  >
+                    Download
+                  </a>
+                )}
               </div>
             ))}
           </div>

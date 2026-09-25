@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { generateRoomCode } from '@/lib/room-code';
 import { SignalingClient } from '@/lib/signaling-client';
 import { ZapitPeer } from '@/lib/webrtc/peer-connection';
+import { pickSaveDirectory, isFileSystemAccessSupported } from '@/lib/webrtc/disk-writer';
 import { NavBar } from '@/components/NavBar';
 import { LandingScreen } from '@/components/LandingScreen';
 import { DiscoveryScreen } from '@/components/DiscoveryScreen';
@@ -11,7 +12,7 @@ import { ConnectedScreen } from '@/components/ConnectedScreen';
 import { TransferScreen } from '@/components/TransferScreen';
 import { AppFooter } from '@/components/AppFooter';
 import type { TurnCredentials } from '@/lib/webrtc/peer-connection';
-import type { TransferProgress } from '@/lib/webrtc/transfer-engine';
+import type { TransferProgress, ReceivedResult } from '@/lib/webrtc/transfer-engine';
 
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_URL ?? 'ws://localhost:8787';
@@ -30,14 +31,16 @@ export default function HomePage() {
   const [statusMsg, setStatusMsg]           = useState('');
   const [nearbyDevices, setNearbyDevices]   = useState<NearbyDevice[]>([]);
   const [transfers, setTransfers]           = useState<TransferProgress[]>([]);
-  const [receivedFiles, setReceivedFiles]   = useState<File[]>([]);
+  const [receivedFiles, setReceivedFiles]   = useState<ReceivedResult[]>([]);
   const [hasStarted, setHasStarted]         = useState(false);
+  const [saveDirName, setSaveDirName]       = useState<string | null>(null);
 
   const sigRef        = useRef<SignalingClient | null>(null);
   const peerRef       = useRef<ZapitPeer | null>(null);
   const turnCredsRef  = useRef<TurnCredentials | null>(null);
   const myClientIdRef = useRef<string | null>(null);
   const activeRoomRef = useRef<string | null>(null);
+  const saveDirRef     = useRef<FileSystemDirectoryHandle | null>(null);
 
   const updateTransfer = useCallback((p: TransferProgress) => {
     setTransfers((prev) => {
@@ -49,8 +52,15 @@ export default function HomePage() {
     });
   }, []);
 
-  const handleFileReceived = useCallback((file: File) => {
-    setReceivedFiles((prev) => [file, ...prev]);
+  const handleFileReceived = useCallback((result: ReceivedResult) => {
+    setReceivedFiles((prev) => [result, ...prev]);
+  }, []);
+
+  const handleChooseSaveFolder = useCallback(async () => {
+    const dir = await pickSaveDirectory();
+    if (!dir) return;
+    saveDirRef.current = dir;
+    setSaveDirName(dir.name);
   }, []);
 
   const connectToPeer = useCallback(
@@ -59,9 +69,10 @@ export default function HomePage() {
       peerRef.current?.close();
 
       const peer = new ZapitPeer(sigRef.current, peerId, role, turnCredsRef.current, {
-        onProgress:     updateTransfer,
-        onFileReceived: handleFileReceived,
-        onError:        (msg) => setStatusMsg(msg),
+        onProgress:        updateTransfer,
+        onFileReceived:    handleFileReceived,
+        onError:           (msg) => setStatusMsg(msg),
+        getSaveDirectory:  () => saveDirRef.current,
         onStateChange:  (state) => {
           // Guard against stale callbacks from a superseded peer (e.g. peer1 fires
           // 'closed' after connectToPeer replaced it with peer2).
@@ -293,7 +304,11 @@ export default function HomePage() {
       )}
 
       {screen === 'connected' && (
-        <ConnectedScreen onSend={handleFiles} />
+        <ConnectedScreen
+          onSend={handleFiles}
+          saveDirName={saveDirName}
+          onChooseSaveFolder={isFileSystemAccessSupported() ? handleChooseSaveFolder : undefined}
+        />
       )}
 
       {screen === 'transferring' && (

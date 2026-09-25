@@ -2,6 +2,7 @@
 
 import CRC32 from 'crc-32';
 import { encrypt, decrypt } from './crypto';
+import { DiskWriter } from './disk-writer';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -102,8 +103,15 @@ export interface TransferProgress {
   error?:         string;
 }
 
+// A received file either stays in memory (small files, or unsupported browsers)
+// or was streamed straight to disk via the File System Access API — in that
+// case there's no in-memory File object to hand back, just a completion record.
+export type ReceivedResult =
+  | { kind: 'memory'; file: File }
+  | { kind: 'disk'; name: string; size: number };
+
 type ProgressCb = (p: TransferProgress) => void;
-type ReceiveCb  = (file: File) => void;
+type ReceiveCb  = (result: ReceivedResult) => void;
 type ErrorCb    = (msg: string) => void;
 
 // ─── Sender ──────────────────────────────────────────────────────────────────
@@ -247,7 +255,7 @@ export class FileSender {
 
 interface PendingTransfer {
   manifest:      FileManifestEntry;
-  writer:        null; // Reserved; always null — see processChunk.
+  writer:        DiskWriter | null; // set when streaming straight to disk; null = in-memory path
   memChunks:     Map<number, Uint8Array>;
   totalChunks:   number | null;
   receivedCount: number;
@@ -261,6 +269,10 @@ export class FileReceiver {
   private earlyFrames:   Array<{ raw: ParsedFrame }> = [];
   private manifestReady  = false;
   private onAcceptCb:    (ch: RTCDataChannel) => void;
+  // Disk writers created (or attempted) once, when the manifest arrives — before
+  // any chunk is processed — so there's no async race between chunk arrival and
+  // writer creation. Consumed/cleared as each transfer's PendingTransfer is created.
+  private preparedWriters: Map<number, DiskWriter> = new Map();
 
   constructor(
     private readonly sessionKey: CryptoKey,
@@ -268,6 +280,10 @@ export class FileReceiver {
     private readonly onReceive:  ReceiveCb,
     private readonly onError:    ErrorCb,
     onAccept: (ch: RTCDataChannel) => void,
+    // Returns a directory handle if the user chose one (File System Access API),
+    // so received files stream to disk instead of buffering in RAM. Optional —
+    // omitted or returning null keeps the original in-memory behaviour.
+    private readonly getSaveDirectory: () => FileSystemDirectoryHandle | null = () => null,
   ) {
     this.onAcceptCb = onAccept;
   }
@@ -297,6 +313,23 @@ export class FileReceiver {
         this.onError('Received a corrupt file manifest');
         return;
       }
+      // Best-effort: if the user picked a save folder, prepare a disk writer per
+      // file so chunks stream straight to disk instead of buffering in RAM.
+      // Done here (once, awaited) rather than lazily per-chunk to avoid a race
+      // between "writer not ready yet" and chunks already landing in memory.
+      const dir = this.getSaveDirectory();
+      if (dir) {
+        await Promise.all(
+          this.manifests.map(async (m, i) => {
+            try {
+              this.preparedWriters.set(i, await DiskWriter.create(dir, m.name));
+            } catch {
+              // Falls back to the in-memory path for this file.
+            }
+          }),
+        );
+      }
+
       this.manifestReady = true;
       await this.sendAccept(replyChannel);
       this.onAcceptCb(replyChannel);
@@ -336,6 +369,10 @@ export class FileReceiver {
 
     const computedCrc = CRC32.buf(frame.payload as unknown as number[]) >>> 0; // A9: crc-32 type compat
     if (computedCrc !== (frame.crc32 >>> 0)) {
+      const existing = this.pending.get(ti);
+      if (existing?.writer) await existing.writer.abort(); // release the open file handle
+      this.preparedWriters.get(ti)?.abort();
+      this.preparedWriters.delete(ti);
       this.pending.delete(ti);
       this.onError(
         `Integrity error: chunk ${frame.chunkIndex} of ` +
@@ -347,15 +384,30 @@ export class FileReceiver {
     let pt = this.pending.get(ti);
     if (!pt) {
       const manifest = this.manifests[ti] ?? { name: `file-${ti}`, size: 0, type: 'application/octet-stream' };
-      pt = { manifest, writer: null, memChunks: new Map(), totalChunks: null, receivedCount: 0, bytesDone: 0, startTime: Date.now() };
+      // Writers are pre-created synchronously in handleFrame's manifest branch
+      // (awaited before any chunk is processed) — no async race here.
+      pt = { manifest, writer: this.preparedWriters.get(ti) ?? null, memChunks: new Map(), totalChunks: null, receivedCount: 0, bytesDone: 0, startTime: Date.now() };
+      this.preparedWriters.delete(ti);
       this.pending.set(ti, pt);
     }
 
     if (frame.flags & FLAG_LAST) pt.totalChunks = frame.chunkIndex + 1;
 
-    // Always use the in-memory path — StreamSaver's iframe conflicts with the
-    // page's frame-ancestors CSP header and causes writer.write() to hang.
-    pt.memChunks.set(frame.chunkIndex, frame.payload);
+    if (pt.writer) {
+      try {
+        await pt.writer.write(frame.chunkIndex * CHUNK_SIZE, frame.payload);
+      } catch (err) {
+        // Disk write failed mid-transfer (e.g. permission revoked, disk full) —
+        // abort rather than silently corrupt or fall back partway through.
+        await pt.writer.abort();
+        this.pending.delete(ti);
+        this.onError(`Failed writing "${pt.manifest.name}" to disk — transfer aborted.`);
+        console.error('[zapit:disk] write failed', err);
+        return;
+      }
+    } else {
+      pt.memChunks.set(frame.chunkIndex, frame.payload);
+    }
     pt.receivedCount++;
     pt.bytesDone += frame.payload.byteLength;
 
@@ -382,14 +434,19 @@ export class FileReceiver {
   }
 
   private async finalizeTransfer(ti: number, pt: PendingTransfer): Promise<void> {
-    // Assemble chunks in order and hand the complete File to the UI.
-    const sorted   = Array.from(pt.memChunks.entries()).sort(([a], [b]) => a - b);
-    const total    = sorted.reduce((s, [, c]) => s + c.byteLength, 0);
-    const buf      = new Uint8Array(total);
-    let off = 0;
-    for (const [, chunk] of sorted) { buf.set(chunk, off); off += chunk.byteLength; }
-    const plainBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-    this.onReceive(new File([plainBuf], pt.manifest.name, { type: pt.manifest.type }));
+    if (pt.writer) {
+      await pt.writer.close();
+      this.onReceive({ kind: 'disk', name: pt.writer.fileName, size: pt.bytesDone });
+    } else {
+      // Assemble chunks in order and hand the complete File to the UI.
+      const sorted   = Array.from(pt.memChunks.entries()).sort(([a], [b]) => a - b);
+      const total    = sorted.reduce((s, [, c]) => s + c.byteLength, 0);
+      const buf      = new Uint8Array(total);
+      let off = 0;
+      for (const [, chunk] of sorted) { buf.set(chunk, off); off += chunk.byteLength; }
+      const plainBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      this.onReceive({ kind: 'memory', file: new File([plainBuf], pt.manifest.name, { type: pt.manifest.type }) });
+    }
 
     this.onProgress({
       transferIndex: ti,

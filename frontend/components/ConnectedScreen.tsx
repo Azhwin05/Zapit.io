@@ -1,12 +1,16 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
-import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert } from 'lucide-react';
+import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert, FolderOpen, FolderCheck } from 'lucide-react';
 
 const LARGE_FILE_WARN_BYTES = 500 * 1024 * 1024; // 500 MB
 
 interface ConnectedScreenProps {
   onSend: (files: File[]) => Promise<void>;
+  /** Name of the folder chosen for incoming files streamed straight to disk, if any. */
+  saveDirName?: string | null;
+  /** Opens the save-folder picker. Omitted entirely when the browser doesn't support it. */
+  onChooseSaveFolder?: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -22,7 +26,7 @@ function FileIcon({ file }: { file: File }) {
   return <FileText className="w-4 h-4 text-on-surface-variant" strokeWidth={1.5} />;
 }
 
-export function ConnectedScreen({ onSend }: ConnectedScreenProps) {
+export function ConnectedScreen({ onSend, saveDirName, onChooseSaveFolder }: ConnectedScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [staged,   setStaged]   = useState<File[]>([]);
   const [sending,  setSending]  = useState(false);
@@ -79,6 +83,28 @@ export function ConnectedScreen({ onSend }: ConnectedScreenProps) {
             Your secure session is active. Add files below, then hit Send.
           </p>
         </div>
+
+        {/* Save-folder picker — streams incoming files to disk instead of RAM */}
+        {onChooseSaveFolder && (
+          <button
+            onClick={onChooseSaveFolder}
+            className="flex items-center gap-2 px-4 py-2 rounded-btn text-sm font-medium
+                       border border-outline-variant/40 hover:bg-surface-low transition-colors
+                       text-on-surface-variant"
+          >
+            {saveDirName ? (
+              <>
+                <FolderCheck className="w-4 h-4 text-primary" strokeWidth={1.5} />
+                Saving received files to <span className="font-semibold text-on-surface">{saveDirName}</span>
+              </>
+            ) : (
+              <>
+                <FolderOpen className="w-4 h-4" strokeWidth={1.5} />
+                Choose a folder for received files (recommended for large transfers)
+              </>
+            )}
+          </button>
+        )}
 
         {/* Error banner */}
         {error && (
@@ -149,9 +175,10 @@ export function ConnectedScreen({ onSend }: ConnectedScreenProps) {
               <div className="flex items-start gap-2.5 px-5 py-3 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
                 <TriangleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                 <span>
-                  <strong>Large transfer ({formatBytes(totalBytes)})</strong> — all chunks are held in RAM
-                  until the transfer completes. It may fail if the receiving device runs low on memory.
-                  Connection drops mid-transfer require a full restart.
+                  <strong>Large transfer ({formatBytes(totalBytes)})</strong> — unless the receiver has
+                  chosen a save folder, incoming chunks are held in RAM until the transfer completes and
+                  it may fail if their device runs low on memory. Connection drops mid-transfer require
+                  a full restart.
                 </span>
               </div>
             )}
