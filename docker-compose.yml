@@ -1,0 +1,40 @@
+version: '3.9'
+
+# Self-hosting Zapit — signaling server + TURN relay on one machine.
+# The frontend is a static Next.js build best served from Vercel (free) or
+# any static host. See README for full self-hosting instructions.
+#
+# Quick start:
+#   cp signaling-server/.env.example signaling-server/.env   # fill in values
+#   docker compose up -d
+
+services:
+  signaling:
+    build:
+      context: ./signaling-server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file:
+      - ./signaling-server/.env
+    environment:
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: host          # required for TURN to work correctly
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      # TLS certs — generate with: certbot certonly --standalone -d turn.yourdomain.com
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    command: -c /etc/coturn/turnserver.conf
+    # coturn must be on the host network; its ports (3478/5349 + UDP relay range)
+    # are opened by the turnserver.conf listening-port directives.

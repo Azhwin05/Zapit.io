@@ -1,0 +1,40 @@
+name: Feature Request
+description: Suggest an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation where you felt something was missing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to see? How should it work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Any other approaches or workarounds you've thought about?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part of the app would this affect?
+      options:
+        - Transfer engine (protocol / speed / reliability)
+        - Encryption / security
+        - UI / user experience
+        - Self-hosting / deployment
+        - Signaling server
+        - TURN / networking
+        - Other
+    validations:
+      required: true

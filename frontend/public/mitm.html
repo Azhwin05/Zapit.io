@@ -1,0 +1,109 @@
+<!--
+  A11: Self-hosted StreamSaver.js MITM page.
+  Copied from node_modules/streamsaver/mitm.html so downloads never depend on
+  a third-party CDN (jimmywarting.github.io).  Keep this file in sync with the
+  streamsaver version pinned in package.json.
+-->
+<script>
+// This will prevent the sw from restarting
+let keepAlive = () => {
+  keepAlive = () => {}
+  var ping = location.href.substr(0, location.href.lastIndexOf('/')) + '/ping'
+  var interval = setInterval(() => {
+    if (sw) {
+      sw.postMessage('ping')
+    } else {
+      fetch(ping).then(res => res.text(!res.ok && clearInterval(interval)))
+    }
+  }, 10000)
+}
+
+let messages = []
+window.onmessage = evt => messages.push(evt)
+
+let sw = null
+let scope = ''
+
+function registerWorker() {
+  return navigator.serviceWorker.getRegistration('./').then(swReg => {
+    return swReg || navigator.serviceWorker.register('sw.js', { scope: './' })
+  }).then(swReg => {
+    const swRegTmp = swReg.installing || swReg.waiting
+
+    scope = swReg.scope
+
+    return (sw = swReg.active) || new Promise(resolve => {
+      swRegTmp.addEventListener('statechange', fn = () => {
+        if (swRegTmp.state === 'activated') {
+          swRegTmp.removeEventListener('statechange', fn)
+          sw = swReg.active
+          resolve()
+        }
+      })
+    })
+  })
+}
+
+function onMessage (event) {
+  let { data, ports, origin } = event
+
+  if (!ports || !ports.length) {
+    throw new TypeError("[StreamSaver] You didn't send a messageChannel")
+  }
+
+  if (typeof data !== 'object') {
+    throw new TypeError("[StreamSaver] You didn't send a object")
+  }
+
+  data.origin = origin
+  data.referrer = data.referrer || document.referrer || origin
+  data.streamSaverVersion = new URLSearchParams(location.search).get('version')
+
+  if (!data.headers) {
+    console.warn("[StreamSaver] pass `data.headers` that you would like to pass along to the service worker")
+  } else {
+    new Headers(data.headers)
+  }
+
+  if (typeof data.filename === 'string') {
+    data.filename = data.filename.replace(/\//g, ':')
+  }
+
+  if (!data.pathname) {
+    data.pathname = Math.random().toString().slice(-6) + '/' + data.filename
+  }
+
+  data.pathname = data.pathname.replace(/^\/+/g, '')
+
+  let org = origin.replace(/(^\w+:|^)\/\//, '')
+
+  data.url = new URL(`${scope + org}/${data.pathname}`).toString()
+
+  if (!data.url.startsWith(`${scope + org}/`)) {
+    throw new TypeError('[StreamSaver] bad `data.pathname`')
+  }
+
+  const transferable = data.readableStream
+    ? [ ports[0], data.readableStream ]
+    : [ ports[0] ]
+
+  if (!(data.readableStream || data.transferringReadable)) {
+    keepAlive()
+  }
+
+  return sw.postMessage(data, transferable)
+}
+
+if (window.opener) {
+  window.opener.postMessage('StreamSaver::loadedPopup', '*')
+}
+
+if (navigator.serviceWorker) {
+  registerWorker().then(() => {
+    window.onmessage = onMessage
+    messages.forEach(window.onmessage)
+  })
+} else {
+  keepAlive()
+}
+</script>

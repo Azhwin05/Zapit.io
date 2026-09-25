@@ -1,0 +1,25 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Never commit real .env files — use .env.example as the committed template.
+.env
+.env.local
+.env.production
+.env.staging
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+.next/
+dist/
+out/
+
+# ── OS / editor noise ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/settings.json
+
+# ── TypeScript incremental cache ──────────────────────────────────────────────
+*.tsbuildinfo

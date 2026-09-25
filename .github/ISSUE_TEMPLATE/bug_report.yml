@@ -1,0 +1,71 @@
+name: Bug Report
+description: Something isn't working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Fill in as much as you can — the more detail, the faster we can fix it.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - File transfer (sending / receiving)
+        - Connection (can't connect to peer)
+        - Room code (can't generate / join)
+        - UI / display issue
+        - Self-hosting / deployment
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Clear description of the bug. Include any error messages from the browser console.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the app on two devices
+        2. Enter the room code
+        3. Try to send a file
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: input
+    id: browsers
+    attributes:
+      label: Browser(s) and OS
+      placeholder: "e.g. Chrome 125 on macOS 14, Firefox 126 on Windows 11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network setup
+      description: Where were the two devices when the issue happened?
+      options:
+        - Same Wi-Fi network
+        - Different networks (one on mobile data, one on Wi-Fi)
+        - Both on mobile data
+        - Corporate / school network
+        - Unknown
+    validations:
+      required: true

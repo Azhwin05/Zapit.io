@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-tap-highlight-color: transparent; }
+
+  body {
+    @apply bg-background text-on-surface antialiased;
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+
+  ::selection {
+    background-color: #aff1ca;
+    color: #002112;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-surface-mid; }
+  ::-webkit-scrollbar-thumb { @apply bg-outline-variant rounded-full; }
+}
+
+@layer utilities {
+  /* Dashed border that Tailwind can't express with opacity token */
+  .border-dashed-primary {
+    border: 2px dashed rgba(40, 103, 73, 0.2);
+  }
+  .border-dashed-primary-active {
+    border: 2px dashed rgba(40, 103, 73, 0.6);
+  }
+}

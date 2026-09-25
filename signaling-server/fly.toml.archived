@@ -1,0 +1,36 @@
+app = "zapit-signaling"
+primary_region = "sin"
+
+[build]
+
+[env]
+  PORT = "8787"
+  NODE_ENV = "production"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8787
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    [services.ports.force_https]
+      enabled = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 500
+    soft_limit = 400
+
+  # HTTP health check — verifies the app is accepting requests, not just listening on the port.
+  [[services.http_checks]]
+    interval = "15s"
+    timeout  = "5s"
+    grace_period = "10s"
+    method   = "GET"
+    path     = "/health"
+    protocol = "http"
