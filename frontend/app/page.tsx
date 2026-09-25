@@ -296,6 +296,16 @@ export default function HomePage() {
     }
   }, []);
 
+  const handleSendText = useCallback(async (text: string): Promise<void> => {
+    const peers = Array.from(peersRef.current.values());
+    if (peers.length === 0) throw new Error('Not connected to a peer');
+    const results = await Promise.allSettled(peers.map((p) => p.sendText(text)));
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length === results.length) {
+      throw new Error('Failed to send to all connected peers');
+    }
+  }, []);
+
   const handleDisconnect = useCallback(() => {
     for (const peer of Array.from(peersRef.current.values())) peer.close();
     peersRef.current.clear();
@@ -367,6 +377,7 @@ export default function HomePage() {
       {screen === 'connected' && (
         <ConnectedScreen
           onSend={handleFiles}
+          onSendText={handleSendText}
           connectedPeerIds={connectedPeerIds}
           saveDirName={saveDirName}
           onChooseSaveFolder={isFileSystemAccessSupported() ? handleChooseSaveFolder : undefined}

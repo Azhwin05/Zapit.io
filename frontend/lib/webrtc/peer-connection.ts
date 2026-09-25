@@ -176,7 +176,7 @@ export class ZapitPeer {
 
   // ── Public transfer API ─────────────────────────────────────────────────────
 
-  async sendFiles(files: File[]): Promise<void> {
+  async sendFiles(files: File[], kinds?: Array<'file' | 'text'>): Promise<void> {
     if (!this.sessionKey || this.channels.length === 0) {
       throw new Error('Peer not ready — session key or data channels not established');
     }
@@ -197,7 +197,15 @@ export class ZapitPeer {
     }
     this.receiver.setOnResumeInfo((ti, have) => sender.applyResumeInfo(ti, have));
 
-    await this.sender.sendFiles(files);
+    await this.sender.sendFiles(files, kinds);
+  }
+
+  // Text goes through the exact same manifest/chunk/encryption pipeline as a
+  // file — it's just wrapped as one, tagged 'text' so the receiver renders it
+  // inline instead of offering a download.
+  async sendText(text: string): Promise<void> {
+    const file = new File([text], `message-${Date.now()}.txt`, { type: 'text/plain' });
+    await this.sendFiles([file], ['text']);
   }
 
   close(): void {

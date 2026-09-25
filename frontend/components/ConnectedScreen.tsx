@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
-import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert, FolderOpen, FolderCheck, Users } from 'lucide-react';
+import { CloudUpload, FileText, Image, Film, X, Send, Info, AlertCircle, Loader2, TriangleAlert, FolderOpen, FolderCheck, Users, MessageSquare } from 'lucide-react';
 import { SafetyNumber } from './SafetyNumber';
 import { peerLabel } from '@/lib/peer-label';
 
@@ -16,6 +16,7 @@ interface SafetyEntry {
 
 interface ConnectedScreenProps {
   onSend: (files: File[]) => Promise<void>;
+  onSendText: (text: string) => Promise<void>;
   /** Peers currently connected — mesh rooms can hold more than one. */
   connectedPeerIds: string[];
   /** Name of the folder chosen for incoming files streamed straight to disk, if any. */
@@ -40,14 +41,31 @@ function FileIcon({ file }: { file: File }) {
 }
 
 export function ConnectedScreen({
-  onSend, connectedPeerIds, saveDirName, onChooseSaveFolder,
+  onSend, onSendText, connectedPeerIds, saveDirName, onChooseSaveFolder,
   safetyList, onVerifySafety,
 }: ConnectedScreenProps) {
   const [dragging, setDragging] = useState(false);
   const [staged,   setStaged]   = useState<File[]>([]);
   const [sending,  setSending]  = useState(false);
   const [error,    setError]    = useState<string | null>(null);
+  const [message,  setMessage]  = useState('');
+  const [sendingText, setSendingText] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleSendText = async () => {
+    const text = message.trim();
+    if (!text || sendingText) return;
+    setSendingText(true);
+    setError(null);
+    try {
+      await onSendText(text);
+      setMessage('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to send message — try again');
+    } finally {
+      setSendingText(false);
+    }
+  };
 
   const addFiles = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -125,6 +143,33 @@ export function ConnectedScreen({
             onVerify={() => onVerifySafety(s.peerId)}
           />
         ))}
+
+        {/* Quick text/clipboard message — skips the file-chunking UI entirely */}
+        <div className="w-full flex items-center gap-2">
+          <div className="relative flex-grow">
+            <MessageSquare className="w-4 h-4 text-on-surface-variant absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+            <input
+              type="text"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSendText(); }}
+              placeholder="Send a quick text message instead…"
+              disabled={sendingText}
+              className="w-full pl-10 pr-3 py-2.5 rounded-btn border border-outline-variant/40 bg-surface-white
+                         text-sm text-on-surface placeholder:text-on-surface-variant/60
+                         focus:outline-none focus:border-primary/60 disabled:opacity-60"
+            />
+          </div>
+          <button
+            onClick={handleSendText}
+            disabled={!message.trim() || sendingText}
+            className="px-4 py-2.5 bg-primary text-white rounded-btn font-body font-medium text-sm
+                       hover:bg-primary-dim transition-colors active:scale-95
+                       disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+          >
+            {sendingText ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          </button>
+        </div>
 
         {/* Save-folder picker — streams incoming files to disk instead of RAM */}
         {onChooseSaveFolder && (

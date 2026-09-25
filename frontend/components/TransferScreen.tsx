@@ -1,6 +1,7 @@
 'use client';
 
-import { FileText, Laptop, Smartphone, HardDriveDownload } from 'lucide-react';
+import { useState } from 'react';
+import { FileText, Laptop, Smartphone, HardDriveDownload, Copy, Check } from 'lucide-react';
 import type { TransferProgress, ReceivedResult } from '@/lib/webrtc/transfer-engine';
 import { peerLabel } from '@/lib/peer-label';
 
@@ -26,6 +27,26 @@ function humanEta(sec: number): string {
 
 function fileExt(name: string): string {
   return name.split('.').pop()?.toUpperCase() ?? 'FILE';
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <button
+      onClick={copy}
+      className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary-dim
+                 transition-colors shrink-0"
+    >
+      {copied ? <Check className="w-3.5 h-3.5" strokeWidth={1.5} /> : <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  );
 }
 
 export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps) {
@@ -162,18 +183,40 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
           </div>
         )}
 
+        {/* Received text messages */}
+        {receivedFiles.some((r) => r.kind === 'text') && (
+          <div className="w-full flex flex-col gap-2 animate-slide-up">
+            <p className="text-xs text-on-surface-variant font-medium uppercase tracking-wider">Messages</p>
+            {receivedFiles.filter((r) => r.kind === 'text').map((r, i) => (
+              <div
+                key={i}
+                className="bg-surface-white shadow-l1 rounded-xl px-4 py-3 border border-outline-variant/20
+                           flex items-start justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm text-on-surface whitespace-pre-wrap break-words">
+                    {r.kind === 'text' ? r.text : ''}
+                  </p>
+                  <p className="text-xs text-on-surface-variant mt-1">from {peerLabel(r.peerId)}</p>
+                </div>
+                {r.kind === 'text' && <CopyButton text={r.text} />}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Received files */}
-        {receivedFiles.length > 0 && (
+        {receivedFiles.some((r) => r.kind !== 'text') && (
           <div className="w-full flex flex-col gap-2 animate-slide-up">
             <p className="text-xs text-on-surface-variant font-medium uppercase tracking-wider">Received files</p>
-            {receivedFiles.map((r, i) => (
+            {receivedFiles.filter((r) => r.kind !== 'text').map((r, i) => (
               <div
                 key={i}
                 className="bg-surface-white shadow-l1 rounded-xl px-4 py-3 border border-outline-variant/20
                            flex items-center justify-between gap-3"
               >
                 <span className="text-sm text-on-surface truncate">
-                  {r.kind === 'disk' ? r.name : r.file.name}
+                  {r.kind === 'disk' ? r.name : r.kind === 'memory' ? r.file.name : ''}
                   <span className="text-on-surface-variant font-normal ml-1.5">
                     · from {peerLabel(r.peerId)}
                   </span>
@@ -183,7 +226,7 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
                     <HardDriveDownload className="w-3.5 h-3.5" strokeWidth={1.5} />
                     Saved to disk
                   </span>
-                ) : (
+                ) : r.kind === 'memory' ? (
                   <a
                     href={URL.createObjectURL(r.file)}
                     download={r.file.name}
@@ -191,7 +234,7 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
                   >
                     Download
                   </a>
-                )}
+                ) : null}
               </div>
             ))}
           </div>

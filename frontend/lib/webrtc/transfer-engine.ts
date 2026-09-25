@@ -89,6 +89,12 @@ export interface FileManifestEntry {
   name: string;
   size: number;
   type: string;
+  // Text messages are sent through the exact same manifest/chunk pipeline as
+  // files (wrapped as a File under the hood) — this discriminant just tells
+  // the receiver to render it inline instead of offering a file download,
+  // and tells the receiver not to bother streaming it to disk. Defaults to
+  // 'file' when absent so older manifests (pre-text-support) still parse.
+  kind?: 'file' | 'text';
 }
 
 export interface TransferProgress {
@@ -110,7 +116,8 @@ export interface TransferProgress {
 // case there's no in-memory File object to hand back, just a completion record.
 export type ReceivedResult =
   | { kind: 'memory'; file: File }
-  | { kind: 'disk'; name: string; size: number };
+  | { kind: 'disk'; name: string; size: number }
+  | { kind: 'text'; text: string };
 
 type ProgressCb = (p: TransferProgress) => void;
 type ReceiveCb  = (result: ReceivedResult) => void;
@@ -141,16 +148,19 @@ export class FileSender {
     private readonly onProgress: ProgressCb,
   ) {}
 
-  async sendFiles(files: File[]): Promise<void> {
+  // `kinds` lets callers mark specific entries as inline text instead of a
+  // downloadable file (see sendText below) — same wire protocol either way.
+  async sendFiles(files: File[], kinds?: Array<'file' | 'text'>): Promise<void> {
     // A4: Reset accept handshake so each sendFiles() call starts fresh.
     this.acceptPromise = null;
     this.resolveAccept = null;
     this.skipMap.clear();
 
-    const manifest: FileManifestEntry[] = files.map((f) => ({
+    const manifest: FileManifestEntry[] = files.map((f, i) => ({
       name: f.name,
       size: f.size,
       type: f.type || 'application/octet-stream',
+      kind: kinds?.[i] ?? 'file',
     }));
     await this.sendControlFrame(
       0xffffffff, 0, FLAG_MANIFEST,
@@ -381,6 +391,7 @@ export class FileReceiver {
       if (dir) {
         await Promise.all(
           this.manifests.map(async (m, i) => {
+            if (m.kind === 'text') return; // text is rendered inline, never written to disk
             try {
               this.preparedWriters.set(i, await DiskWriter.create(dir, m.name));
             } catch {
@@ -525,14 +536,20 @@ export class FileReceiver {
       await pt.writer.close();
       this.onReceive({ kind: 'disk', name: pt.writer.fileName, size: pt.bytesDone });
     } else {
-      // Assemble chunks in order and hand the complete File to the UI.
+      // Assemble chunks in order — either to render inline as text, or hand
+      // back a complete File.
       const sorted   = Array.from(pt.memChunks.entries()).sort(([a], [b]) => a - b);
       const total    = sorted.reduce((s, [, c]) => s + c.byteLength, 0);
       const buf      = new Uint8Array(total);
       let off = 0;
       for (const [, chunk] of sorted) { buf.set(chunk, off); off += chunk.byteLength; }
-      const plainBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-      this.onReceive({ kind: 'memory', file: new File([plainBuf], pt.manifest.name, { type: pt.manifest.type }) });
+
+      if (pt.manifest.kind === 'text') {
+        this.onReceive({ kind: 'text', text: new TextDecoder().decode(buf) });
+      } else {
+        const plainBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+        this.onReceive({ kind: 'memory', file: new File([plainBuf], pt.manifest.name, { type: pt.manifest.type }) });
+      }
     }
 
     this.onProgress({
