@@ -66,6 +66,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulne
 - 💬 **Text / clipboard messages** — send a quick message without picking a file
 - ⚡ **3× parallel channels** — maximises throughput over the WebRTC data channel
 - 📱 **PWA** — installable, offline-capable app shell, with Android/Chrome share-sheet integration
+- 🏠 **LAN mode** — point the app at a signaling server on your own network at runtime (no rebuild), for a fully self-hosted, zero-cloud setup
 - 🔍 **Nearby device detection** — auto-discovers devices on the same network
 - 🔗 **Share link** — share a direct join link instead of the room code
 - 📋 **QR code** — scan to join from a phone
@@ -155,6 +156,26 @@ If you want to run your own coturn instead of Metered.ca:
 2. Run: `apt install coturn && certbot certonly --standalone -d turn.yourdomain.com`
 3. Copy `coturn/turnserver.conf` to `/etc/coturn/turnserver.conf` and fill in the placeholders
 4. Start: `systemctl enable coturn && systemctl start coturn`
+
+### Option C — LAN mode (no cloud, no deploy, zero setup beyond `npm run dev`)
+
+Don't want any cloud dependency at all? Run the signaling server on your own
+machine/network and point any browser at it — no build, no env var, no
+redeploy needed to change servers:
+
+```bash
+cd signaling-server && npm install && npm run dev
+# Signaling server is now at ws://localhost:8787 (or your machine's LAN IP,
+# e.g. ws://192.168.1.42:8787, for other devices on the same network)
+```
+
+Then, in the app (the public zapit.vercel.app site or your own deployment),
+click the **settings (⚙) icon** next to the Zapit logo and enter that URL —
+no rebuild required, it's a runtime setting stored in your browser. Other
+devices on the same network can join the same way, or via a shareable link:
+`https://your-zapit-url?signaling=ws://192.168.1.42:8787`. This is exactly
+the "one laptop hosts, everyone else joins over Wi-Fi" setup, with the room
+code itself still working as a normal Zapit room on top of it.
 
 ## Running Locally
 

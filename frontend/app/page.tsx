@@ -7,6 +7,7 @@ import { ZapitPeer } from '@/lib/webrtc/peer-connection';
 import { pickSaveDirectory, isFileSystemAccessSupported } from '@/lib/webrtc/disk-writer';
 import { peerLabel } from '@/lib/peer-label';
 import { readSharedFiles } from '@/lib/share-target';
+import { resolveSignalingUrl, setSignalingUrlOverride, isValidSignalingUrl } from '@/lib/signaling-url';
 import { NavBar } from '@/components/NavBar';
 import { LandingScreen } from '@/components/LandingScreen';
 import { DiscoveryScreen } from '@/components/DiscoveryScreen';
@@ -15,9 +16,6 @@ import { TransferScreen } from '@/components/TransferScreen';
 import { AppFooter } from '@/components/AppFooter';
 import type { TurnCredentials } from '@/lib/webrtc/peer-connection';
 import type { TransferProgress, ReceivedResult, PendingTransfer } from '@/lib/webrtc/transfer-engine';
-
-const SIGNALING_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_URL ?? 'ws://localhost:8787';
 
 type ConnectionStatus = 'idle' | 'waiting' | 'connecting' | 'connected' | 'disconnected';
 
@@ -148,11 +146,37 @@ export default function HomePage() {
     setRoomCode(code);
     setShareUrl(`${window.location.origin}?join=${code}`);
 
-    const sig = new SignalingClient(SIGNALING_URL);
+    const params = new URLSearchParams(window.location.search);
+
+    // LAN mode via shareable link (e.g. from a QR code shown by someone
+    // running their own signaling server): ?signaling=ws://192.168.x.x:8787
+    // persists as the same override the settings panel writes (lib/signaling-url.ts),
+    // so it's remembered on this device beyond just this page load.
+    //
+    // The matching CSP relaxation (middleware.ts) is cookie-gated, and CSP is
+    // fixed for the lifetime of a response — setting the cookie via client JS
+    // can't retroactively loosen the policy this document already received.
+    // So on the very first visit via this link we set the override, then
+    // reload once so the *next* request carries the cookie and gets the
+    // relaxed CSP before we ever try to open the WebSocket.
+    const signalingParam = params.get('signaling');
+    const alreadyOptedIn = document.cookie.includes('zapit-custom-signaling=1');
+    if (signalingParam && isValidSignalingUrl(signalingParam) && !alreadyOptedIn) {
+      setSignalingUrlOverride(signalingParam);
+      window.location.reload();
+      return;
+    }
+    if (signalingParam && isValidSignalingUrl(signalingParam)) {
+      setSignalingUrlOverride(signalingParam);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('signaling');
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    const sig = new SignalingClient(resolveSignalingUrl());
     sigRef.current = sig;
 
     // Auto-start if ?join= param present
-    const params    = new URLSearchParams(window.location.search);
     const joinParam = params.get('join');
     if (joinParam) {
       activeRoomRef.current = joinParam;

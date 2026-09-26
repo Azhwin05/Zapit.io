@@ -27,8 +27,19 @@ export function middleware(request: NextRequest): NextResponse {
   // Lock connect-src to the exact WSS host in production so a compromised CDN or
   // injected script cannot phone home to an attacker-controlled signaling server.
   // NEXT_PUBLIC_SIGNALING_URL is available in middleware (Node.js runtime context).
+  //
+  // Exception — "LAN mode" (see lib/signaling-url.ts): a user can point this
+  // browser at their own signaling server (e.g. one running on their own
+  // laptop/network) instead of the build's default. That URL isn't known at
+  // build time, so the strict single-host policy can't apply to it. The
+  // user's own client JS sets a flag-only cookie (no URL, no secret) when
+  // they opt into that mode; we widen connect-src to any ws(s) host only for
+  // browsers carrying that cookie. A default deployment where no one has
+  // ever opened the LAN-mode settings panel is completely unaffected.
+  const hasCustomSignaling = request.cookies.get('zapit-custom-signaling')?.value === '1';
+
   const connectSrc = (() => {
-    if (!isProd) return "connect-src 'self' ws: wss: http: https:";
+    if (!isProd || hasCustomSignaling) return "connect-src 'self' ws: wss: http: https:";
     const raw = process.env.NEXT_PUBLIC_SIGNALING_URL;
     if (raw) {
       try {
