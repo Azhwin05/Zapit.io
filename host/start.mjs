@@ -98,15 +98,33 @@ function waitForHttp(url, timeoutMs = 30_000) {
   });
 }
 
+// Picking "the first non-internal IPv4" is wrong in practice — confirmed by
+// a real test on a real second device: on a machine with WSL/Hyper-V,
+// Docker Desktop, VirtualBox, VMware, or a VPN installed, that naive scan
+// usually finds a VIRTUAL adapter first (e.g. "vEthernet (WSL)" at
+// 172.17.x.x), which is invisible to every other physical device on the
+// network — the exact failure mode "site can't be reached" from a phone
+// scanning the QR code. Prefer interfaces that look like a real Wi-Fi/
+// Ethernet connection; only fall back to the naive scan if none match.
+const VIRTUAL_ADAPTER_PATTERN = /docker|vethernet|virtualbox|vmware|hyper-v|wsl|loopback|tailscale|zerotier|tun|tap/i;
+const PHYSICAL_ADAPTER_PATTERN = /wi-?fi|ethernet|^en\d|^eth\d|^wlan\d/i;
+
 function getLanIp() {
   const nets = networkInterfaces();
+  const candidates = [];
   for (const name of Object.keys(nets)) {
     for (const net of nets[name] ?? []) {
-      // Skip internal (loopback) and non-IPv4 addresses.
-      if (net.family === 'IPv4' && !net.internal) return net.address;
+      if (net.family === 'IPv4' && !net.internal) candidates.push({ name, address: net.address });
     }
   }
-  return null;
+
+  const physical = candidates.find((c) => PHYSICAL_ADAPTER_PATTERN.test(c.name) && !VIRTUAL_ADAPTER_PATTERN.test(c.name));
+  if (physical) return physical.address;
+
+  const nonVirtual = candidates.find((c) => !VIRTUAL_ADAPTER_PATTERN.test(c.name));
+  if (nonVirtual) return nonVirtual.address;
+
+  return candidates[0]?.address ?? null;
 }
 
 function openBrowser(url) {

@@ -90,6 +90,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulne
 - ⚡ **3× parallel channels** — maximises throughput over the WebRTC data channel
 - 📱 **PWA** — installable, offline-capable app shell, with Android/Chrome share-sheet integration
 - 🏠 **LAN mode** — `cd host && npm start` turns your laptop into the whole system: server + a full peer, QR code and all, zero cloud, one command
+- 🖥️ **Windows desktop app** — `desktop/` packages the same idea as a real installer (Electron): double-click, no Node.js install required, system tray, and the in-app Share Link/QR automatically uses your machine's real LAN address
 - 🔍 **Nearby device detection** — auto-discovers devices on the same network
 - 🔗 **Share link** — share a direct join link instead of the room code
 - 📋 **QR code** — scan to join from a phone
@@ -215,6 +216,26 @@ instance lets you point it at that URL at runtime — no rebuild. That's the
 mechanism `host/` above is built on: a shareable link like
 `https://your-zapit-url?signaling=ws://192.168.1.42:8787` does the same
 thing the QR code does.
+
+### Option D — Windows desktop app (double-click, no Node.js required)
+
+The `host/` launcher above still needs Node.js installed and a terminal.
+`desktop/` packages the exact same idea as a real installer instead —
+Electron bundles its own Node runtime, so end users install nothing:
+
+```bash
+cd desktop && npm install
+npm run dist:win
+# Installer lands in desktop/dist/ — hand that .exe to anyone
+```
+
+Double-clicking the installed app starts both the signaling server and the
+frontend locally, opens a window (this machine is a full peer), adds a
+system tray icon, and — because the window loads via this machine's real
+LAN address rather than `localhost` — the app's own Share Link/QR code
+already points other devices at the right place with no extra setup.
+macOS/Linux use the identical `main.js` and build pipeline; someone running
+`electron-builder` on those platforms is all that's needed to add them.
 
 ## Running Locally
 

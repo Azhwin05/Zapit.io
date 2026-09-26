@@ -1,0 +1,44 @@
+{
+  "name": "zapit-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zapit desktop app — double-click, and this machine becomes both the server and a peer. No Node.js install required on the end user's machine; bundles everything, including the runtime (via Electron's embedded Node).",
+  "main": "main.js",
+  "scripts": {
+    "prebuild:resources": "node scripts/prepare-resources.mjs",
+    "dev": "npm run prebuild:resources && electron .",
+    "dist:win": "npm run prebuild:resources && electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "io.zapit.desktop",
+    "productName": "Zapit",
+    "files": [
+      "main.js",
+      "tray-icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/signaling-server",
+        "to": "signaling-server"
+      },
+      {
+        "from": "resources/frontend",
+        "to": "frontend"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
