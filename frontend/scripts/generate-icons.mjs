@@ -8,10 +8,10 @@
 // icon-192-maskable.png, icon-512-maskable.png (purpose: maskable, with
 // safe-zone padding per https://web.dev/articles/maskable-icon).
 //
-// Brand mark matches NavBar.tsx: Lucide's "Infinity" glyph (stroke-based,
-// simplified to a filled path here since PNG rasterization doesn't need
-// the live icon component) in primary green (#286749) on the app's cream
-// background (#faf8f4) — see tailwind.config.ts for both values.
+// Brand mark: the "Zapit ring" — a bold ring with a pinched inner waist,
+// same path as components/ZapitMark.tsx (keep the two in sync if this ever
+// changes). Primary green (#286749) on the app's cream background
+// (#faf8f4) — see tailwind.config.ts for both values.
 
 import sharp from 'sharp';
 import { mkdirSync } from 'fs';
@@ -25,22 +25,26 @@ mkdirSync(outDir, { recursive: true });
 const PRIMARY = '#286749';
 const BACKGROUND = '#faf8f4';
 
-// Lucide's actual "Infinity" icon path (MIT licensed, lucide.dev) — the
-// exact glyph NavBar.tsx already renders via <Infinity /> from lucide-react.
-// Native viewBox is 24x24, stroke-based (open path, round caps/joins).
-const LUCIDE_INFINITY_PATH =
-  'M18.178 8c5.096 0 5.096 8 0 8-5.095 0-6.687-8-12.535-8-4.984 0-4.984 8 0 8 5.848 0 7.44-8 12.535-8z';
+// Same path as components/ZapitMark.tsx, native viewBox 0 0 100 100.
+const ZAPIT_RING_PATH = `M 32 50
+  C 32 39, 41 30, 52 30
+  C 63 30, 72 39, 72 50
+  C 72 61, 63 70, 52 70
+  C 44 70, 37 65, 34 58
+  M 68 50
+  C 68 39, 59 30, 48 30
+  C 37 30, 28 39, 28 50
+  C 28 61, 37 70, 48 70
+  C 56 70, 63 65, 66 58`;
 
 function svgIcon({ size, glyphScale, background }) {
-  // Lucide icons are drawn at strokeWidth 2 in a 24-unit box by default;
-  // keep that same visual proportion when scaled up to the icon canvas.
-  const scale = (size / 24) * glyphScale;
-  const strokeWidth = 3.4 / scale; // constant on-canvas stroke thickness after the group's scale() is applied — bolder than the 24px navbar mark, which reads better at app-icon sizes
+  const scale = (size / 100) * glyphScale;
+  const strokeWidth = 9; // in the path's own 100-unit space — constant regardless of canvas size
   return `
 <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
   <rect width="${size}" height="${size}" rx="${size * 0.22}" fill="${background}"/>
-  <g transform="translate(${size / 2}, ${size / 2}) scale(${scale}) translate(-12, -12)">
-    <path d="${LUCIDE_INFINITY_PATH}" fill="none" stroke="${PRIMARY}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(${size / 2}, ${size / 2}) scale(${scale}) translate(-50, -50)">
+    <path d="${ZAPIT_RING_PATH}" fill="none" stroke="${PRIMARY}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>`;
 }
@@ -51,13 +55,13 @@ async function render(name, size, glyphScale) {
   console.log(`wrote ${name}`);
 }
 
-// purpose:any — glyph can use full canvas
-await render('icon-192.png', 192, 1.15);
-await render('icon-512.png', 512, 1.15);
+// purpose:any — glyph can use full canvas (scale 1.0 = the path's natural size)
+await render('icon-192.png', 192, 1.0);
+await render('icon-512.png', 512, 1.0);
 
 // purpose:maskable — OS may clip to a circle/squircle; keep glyph within the
 // ~80% safe-zone by scaling it down within the same full-bleed background.
-await render('icon-192-maskable.png', 192, 0.72);
-await render('icon-512-maskable.png', 512, 0.72);
+await render('icon-192-maskable.png', 192, 0.85);
+await render('icon-512-maskable.png', 512, 0.85);
 
 console.log('done');

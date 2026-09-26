@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Infinity } from 'lucide-react';
+import { ZapitMark } from '@/components/ZapitMark';
 
 export const metadata = {
   title: 'Terms of Service — Zapit',
@@ -11,7 +11,7 @@ export default function TermsPage() {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="w-full px-6 py-4 flex items-center max-w-5xl mx-auto">
         <Link href="/" className="flex items-center gap-2">
-          <Infinity className="text-primary w-6 h-6" strokeWidth={2.5} />
+          <ZapitMark className="text-primary w-6 h-6" />
           <span className="font-display font-bold text-xl text-primary tracking-tight">Zapit</span>
         </Link>
       </header>
