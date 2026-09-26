@@ -11,6 +11,7 @@ import { resolveSignalingUrl, setSignalingUrlOverride, isValidSignalingUrl } fro
 import { NavBar } from '@/components/NavBar';
 import { LandingScreen } from '@/components/LandingScreen';
 import { DiscoveryScreen } from '@/components/DiscoveryScreen';
+import { JoiningScreen } from '@/components/JoiningScreen';
 import { ConnectedScreen } from '@/components/ConnectedScreen';
 import { TransferScreen } from '@/components/TransferScreen';
 import { AppFooter } from '@/components/AppFooter';
@@ -41,6 +42,14 @@ export default function HomePage() {
   const [transfers, setTransfers]           = useState<(TransferProgress & { peerId: string })[]>([]);
   const [receivedFiles, setReceivedFiles]   = useState<(ReceivedResult & { peerId: string })[]>([]);
   const [hasStarted, setHasStarted]         = useState(false);
+  // Distinguishes "I created this room, show my code for others to scan" from
+  // "I'm joining someone else's room" — both used to render the same
+  // DiscoveryScreen (your own room code + QR), which is actively misleading
+  // when you arrived via someone ELSE's join link/QR: you'd see your OWN
+  // fresh room code instead of any indication you're connecting to the room
+  // you actually meant to join. Reported live: scanning a join QR on a phone
+  // showed "the same page as the laptop" instead of progressing anywhere.
+  const [isHost, setIsHost]                 = useState(true);
   const [saveDirName, setSaveDirName]       = useState<string | null>(null);
   const [safetyNumbers, setSafetyNumbers]   = useState<Record<string, string>>({});
   const [safetyVerified, setSafetyVerified] = useState<Record<string, boolean>>({});
@@ -183,6 +192,7 @@ export default function HomePage() {
       setRoomCode(joinParam);
       setShareUrl(`${window.location.origin}?join=${joinParam}`);
       setHasStarted(true);
+      setIsHost(false);
     }
 
     // Files handed off from the OS share sheet (see sw.js's Web Share Target
@@ -290,6 +300,7 @@ export default function HomePage() {
     if (!sigRef.current || !roomCode) return;
     activeRoomRef.current = roomCode;
     setHasStarted(true);
+    setIsHost(true);
     sigRef.current.joinRoom(roomCode);
   }, [roomCode]);
 
@@ -308,6 +319,7 @@ export default function HomePage() {
     setRoomCode(code);
     setShareUrl(`${window.location.origin}?join=${code}`);
     setHasStarted(true);
+    setIsHost(false);
     sigRef.current.leaveRoom();
     sigRef.current.joinRoom(code);
     setStatus('waiting');
@@ -371,15 +383,21 @@ export default function HomePage() {
   const isConnected       = status === 'connected' && connectedPeerIds.length > 0;
   const isTransferring    = isConnected && hasActiveTransfer;
 
-  let screen: 'landing' | 'discovery' | 'connected' | 'transferring';
+  let screen: 'landing' | 'discovery' | 'joining' | 'connected' | 'transferring';
   if (!hasStarted) {
     screen = 'landing';
   } else if (isConnected && isTransferring) {
     screen = 'transferring';
   } else if (isConnected) {
     screen = 'connected';
-  } else {
+  } else if (isHost) {
     screen = 'discovery';
+  } else {
+    // Joined via a link/QR/typed code — waiting on the WebRTC handshake to
+    // complete. Never shows DiscoveryScreen's own-room-code/QR here: seeing
+    // your OWN code while trying to join someone ELSE's room is exactly the
+    // confusing state that was reported.
+    screen = 'joining';
   }
 
   const safetyList = connectedPeerIds
@@ -416,6 +434,10 @@ export default function HomePage() {
           onNearbyConnect={handleNearbyConnect}
           onJoinCode={handleJoinCode}
         />
+      )}
+
+      {screen === 'joining' && (
+        <JoiningScreen roomCode={roomCode} status={status} statusMsg={statusMsg} />
       )}
 
       {screen === 'connected' && (
