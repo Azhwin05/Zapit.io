@@ -1,6 +1,6 @@
 // A8: Cache name must be incremented on every deploy to bust stale caches.
 // Use the build timestamp injected at build time, or increment the version manually.
-const CACHE_NAME = 'zapit-shell-v3';
+const CACHE_NAME = 'zapit-shell-v4';
 
 const SHELL_ASSETS = ['/', '/manifest.json'];
 
