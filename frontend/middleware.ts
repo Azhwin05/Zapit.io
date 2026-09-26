@@ -40,14 +40,21 @@ export function middleware(request: NextRequest): NextResponse {
 
   const connectSrc = (() => {
     if (!isProd || hasCustomSignaling) return "connect-src 'self' ws: wss: http: https:";
-    const raw = process.env.NEXT_PUBLIC_SIGNALING_URL;
-    if (raw) {
-      try {
-        const { host } = new URL(raw);
-        return `connect-src 'self' wss://${host}`;
-      } catch { /* fall through to narrow wildcard */ }
+    // Bug fixed here (caught by e2e/transfer.spec.ts against a real production
+    // build): this used to hardcode `wss://${host}` regardless of the actual
+    // configured scheme, which silently broke any deployment using a plain
+    // ws:// signaling URL — including host/start.mjs (the self-hosted LAN
+    // launcher) and any self-hosted deployment that bakes a ws:// URL in.
+    // Falls back to the same ws://localhost:8787 default used client-side
+    // (see lib/signaling-url.ts's resolveSignalingUrl) when the env var isn't
+    // set at all, rather than assuming wss unconditionally.
+    const raw = process.env.NEXT_PUBLIC_SIGNALING_URL ?? 'ws://localhost:8787';
+    try {
+      const { protocol, host } = new URL(raw);
+      return `connect-src 'self' ${protocol}//${host}`;
+    } catch {
+      return "connect-src 'self' wss:"; // raw was unparseable — fall back to a narrow wildcard
     }
-    return "connect-src 'self' wss:";
   })();
 
   const csp = [

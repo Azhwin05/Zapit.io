@@ -22,12 +22,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test
       - run: npm run build
         env:
           NEXT_PUBLIC_SIGNALING_URL: wss://placeholder.example.com
 
   signaling:
-    name: Signaling server — typecheck & build
+    name: Signaling server — typecheck, test & build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -41,4 +42,33 @@ jobs:
           cache-dependency-path: signaling-server/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test
       - run: npm run build
+
+  e2e:
+    name: End-to-end — real two/three-browser WebRTC transfer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install signaling-server deps
+        working-directory: signaling-server
+        run: npm ci
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Install Playwright's Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run e2e suite (builds + starts both real servers)
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

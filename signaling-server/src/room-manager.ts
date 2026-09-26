@@ -111,6 +111,16 @@ export function touchRoom(code: string): void {
   if (room) room.lastActivity = Date.now();
 }
 
+// Test-only: this module holds process-lifetime singleton state (rooms,
+// clients, ipIndex), which is the right call in production but means tests
+// need a way to start clean between cases instead of accumulating state
+// across the whole suite.
+export function __resetForTests(): void {
+  rooms.clear();
+  clients.clear();
+  ipIndex.clear();
+}
+
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {

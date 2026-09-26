@@ -23,3 +23,9 @@ Thumbs.db
 
 # ── TypeScript incremental cache ──────────────────────────────────────────────
 *.tsbuildinfo
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+test-results/
+playwright-report/
+blob-report/
+coverage/

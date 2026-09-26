@@ -83,6 +83,18 @@ function toSendable(u8: Uint8Array): ArrayBuffer {
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
 }
 
+// Test-only: the wire format (header encode/decode, flag bits) is the most
+// fragile, highest-consequence piece of correctness in this file — worth
+// unit testing directly rather than only reachable through the full
+// FileSender/FileReceiver classes, which need real RTCDataChannel/
+// RTCPeerConnection objects to exercise. Bundled under one namespace
+// (rather than exported individually) to keep the normal public API surface
+// clean about what's "just for tests."
+export const __wireFormat = {
+  HDR, FLAG_LAST, FLAG_MANIFEST, FLAG_ACCEPT, FLAG_ERROR, FLAG_RESUME_RESPONSE,
+  encodeHeader, decodeFrame, concat,
+};
+
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface FileManifestEntry {
