@@ -77,11 +77,11 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
           </div>
           <div className="flex-grow min-w-0">
             <p className="font-display font-semibold text-2xl text-on-surface truncate">
-              {current.fileName}
+              {current.kind === 'text' ? 'Text message' : current.fileName}
             </p>
             <div className="flex items-center gap-3 mt-1">
               <span className="bg-secondary/10 text-secondary px-2.5 py-0.5 rounded font-mono text-xs font-semibold uppercase tracking-wider">
-                {fileExt(current.fileName)}
+                {current.kind === 'text' ? 'TXT' : fileExt(current.fileName)}
               </span>
               <span className="text-on-surface-variant text-sm">
                 {humanSize(current.bytesTotal)}
@@ -167,7 +167,7 @@ export function TransferScreen({ transfers, receivedFiles }: TransferScreenProps
                              flex items-center gap-4"
                 >
                   <span className="flex-grow text-sm text-on-surface truncate font-medium">
-                    {t.fileName}
+                    {t.kind === 'text' ? 'Text message' : t.fileName}
                     <span className="text-on-surface-variant font-normal ml-1.5">
                       · {t.direction === 'receive' ? 'from' : 'to'} {peerLabel(t.peerId)}
                     </span>

@@ -100,6 +100,7 @@ export interface FileManifestEntry {
 export interface TransferProgress {
   transferIndex:  number;
   fileName:       string;
+  kind:           'file' | 'text';
   chunksTotal:    number;
   chunksDone:     number;
   bytesTotal:     number;
@@ -173,7 +174,7 @@ export class FileSender {
     await new Promise((r) => setTimeout(r, RESUME_INFO_GRACE_MS));
 
     // Send files in parallel; each file distributes its chunks across all channels.
-    await Promise.all(files.map((file, i) => this.sendOneFile(file, i)));
+    await Promise.all(files.map((file, i) => this.sendOneFile(file, i, kinds?.[i] ?? 'file')));
   }
 
   signalAccept(): void {
@@ -201,7 +202,7 @@ export class FileSender {
     return this.acceptPromise;
   }
 
-  private async sendOneFile(file: File, transferIndex: number): Promise<void> {
+  private async sendOneFile(file: File, transferIndex: number, kind: 'file' | 'text'): Promise<void> {
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE) || 1;
     const startTime   = Date.now();
     const alreadyHave = this.skipMap.get(transferIndex) ?? new Set<number>();
@@ -237,6 +238,7 @@ export class FileSender {
       this.onProgress({
         transferIndex,
         fileName:      file.name,
+        kind,
         chunksTotal:   totalChunks,
         chunksDone:    ci + 1,
         bytesTotal:    file.size,
@@ -516,6 +518,7 @@ export class FileReceiver {
     this.onProgress({
       transferIndex: ti,
       fileName:      pt.manifest.name,
+      kind:          pt.manifest.kind ?? 'file',
       chunksTotal:   pt.totalChunks ?? frame.totalChunks,
       chunksDone:    pt.receivedCount,
       bytesTotal:    pt.manifest.size,
@@ -555,6 +558,7 @@ export class FileReceiver {
     this.onProgress({
       transferIndex: ti,
       fileName:      pt.manifest.name,
+      kind:          pt.manifest.kind ?? 'file',
       chunksTotal:   pt.totalChunks!,
       chunksDone:    pt.receivedCount,
       bytesTotal:    pt.manifest.size,
