@@ -75,6 +75,7 @@ Higher-impact but harder projects:
 - **Full reconnect resume** — the current chunk-level resume (`transfer-engine.ts`) only survives a WebRTC-level hiccup where the signaling WebSocket connection — and therefore the peerId — stays the same. It doesn't survive a real network drop, since the signaling server hands out a fresh random `clientId` per connection (see `signaling-server/src/index.ts`). Closing that gap needs a stable device identity exchanged alongside the ECDH handshake, so a reconnecting client can be matched to its prior partial-transfer state.
 - **iOS share-sheet support** — the Web Share Target integration (`public/sw.js`) is Android/Chrome only; iOS Safari has no equivalent API.
 - **SFU/relay topology for larger rooms** — mesh rooms (`room-manager.ts`'s `MAX_PEERS_PER_ROOM`) are O(N²) connections; fine at small N, but a relay-based mode would let rooms scale further.
+- **Native desktop app (Tauri)** — `host/` (see README's "Option C") gets you a one-command self-hosted server today, no compiled binary needed. A real installable desktop app (custom icon, system tray, launch-on-startup) is a natural next step: bundle the frontend (`next start`) and `signaling-server/dist/index.js` as Tauri sidecars, pointing the webview at the local frontend the same way `host/start.mjs` does. Not started — needs a Rust/Cargo toolchain to build and test, which wasn't available when this was scoped.
 
 ## Reporting Security Issues
 

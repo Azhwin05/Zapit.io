@@ -66,7 +66,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulne
 - 💬 **Text / clipboard messages** — send a quick message without picking a file
 - ⚡ **3× parallel channels** — maximises throughput over the WebRTC data channel
 - 📱 **PWA** — installable, offline-capable app shell, with Android/Chrome share-sheet integration
-- 🏠 **LAN mode** — point the app at a signaling server on your own network at runtime (no rebuild), for a fully self-hosted, zero-cloud setup
+- 🏠 **LAN mode** — `cd host && npm start` turns your laptop into the whole system: server + a full peer, QR code and all, zero cloud, one command
 - 🔍 **Nearby device detection** — auto-discovers devices on the same network
 - 🔗 **Share link** — share a direct join link instead of the room code
 - 📋 **QR code** — scan to join from a phone
@@ -157,25 +157,36 @@ If you want to run your own coturn instead of Metered.ca:
 3. Copy `coturn/turnserver.conf` to `/etc/coturn/turnserver.conf` and fill in the placeholders
 4. Start: `systemctl enable coturn && systemctl start coturn`
 
-### Option C — LAN mode (no cloud, no deploy, zero setup beyond `npm run dev`)
+### Option C — LAN mode: your laptop *is* the server (no cloud, no accounts, one command)
 
-Don't want any cloud dependency at all? Run the signaling server on your own
-machine/network and point any browser at it — no build, no env var, no
-redeploy needed to change servers:
+Want zero cloud dependency at all — your laptop hosts, everyone else on the
+same Wi-Fi just joins? One command does the whole thing:
+
+```bash
+cd host && npm install && npm start
+```
+
+This builds the signaling server and frontend the first time (skipped on
+later runs), starts both locally, works out your machine's LAN address, and
+prints a **QR code right in the terminal** plus a join link — scan it from
+any phone/laptop on the same network and they're in, already pointed at
+your machine. It also opens your own browser automatically, so your laptop
+is both the server and a full participant. Ctrl+C stops everything.
+
+Prefer to do it by hand, or point an *existing* deployment (e.g. the public
+site) at your own server instead of running the frontend locally too? The
+underlying piece is the signaling server on its own:
 
 ```bash
 cd signaling-server && npm install && npm run dev
-# Signaling server is now at ws://localhost:8787 (or your machine's LAN IP,
-# e.g. ws://192.168.1.42:8787, for other devices on the same network)
+# Now at ws://localhost:8787, or ws://192.168.1.42:8787 for other devices
 ```
 
-Then, in the app (the public zapit.vercel.app site or your own deployment),
-click the **settings (⚙) icon** next to the Zapit logo and enter that URL —
-no rebuild required, it's a runtime setting stored in your browser. Other
-devices on the same network can join the same way, or via a shareable link:
-`https://your-zapit-url?signaling=ws://192.168.1.42:8787`. This is exactly
-the "one laptop hosts, everyone else joins over Wi-Fi" setup, with the room
-code itself still working as a normal Zapit room on top of it.
+...and the **settings (⚙) icon** next to the Zapit logo in any Zapit
+instance lets you point it at that URL at runtime — no rebuild. That's the
+mechanism `host/` above is built on: a shareable link like
+`https://your-zapit-url?signaling=ws://192.168.1.42:8787` does the same
+thing the QR code does.
 
 ## Running Locally
 
@@ -219,8 +230,9 @@ zapit/
 │       ├── room-manager.ts
 │       ├── turn-credentials.ts
 │       └── rate-limiter.ts
+├── host/start.mjs          # Self-hosting: one-command LAN launcher (see Option C)
 ├── coturn/turnserver.conf  # Self-hosting: coturn config template
-├── docker-compose.yml      # Self-hosting: one-command setup
+├── docker-compose.yml      # Self-hosting: one-command cloud/Docker setup
 ├── .github/workflows/ci.yml
 ├── CONTRIBUTING.md
 ├── SECURITY.md

@@ -1,0 +1,13 @@
+{
+  "name": "zapit-host",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-command launcher: runs the signaling server + frontend locally and shows a QR code for others on your network to join.",
+  "type": "module",
+  "scripts": {
+    "start": "node start.mjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.3"
+  }
+}
