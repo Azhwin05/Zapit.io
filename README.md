@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Next.js-14-black?logo=next.js" alt="Next.js 14" />
+  <img src="https://img.shields.io/badge/Next.js-15-black?logo=next.js" alt="Next.js 15" />
   <img src="https://img.shields.io/badge/WebRTC-P2P-orange" alt="WebRTC" />
   <img src="https://img.shields.io/badge/encryption-ECDH%20%2B%20AES--GCM--256-green" alt="Encryption" />
   <img src="https://img.shields.io/badge/self--hostable-yes-brightgreen" alt="Self hostable" />
@@ -11,7 +11,30 @@
 <p align="center"><strong>AirDrop for the web. No login. No server. No limits.</strong></p>
 <p align="center">
   Transfer files directly between any two browsers, end-to-end encrypted.<br/>
-  <a href="https://zapit.vercel.app">Live Demo</a> · <a href="#self-hosting">Self-Host in 5 Minutes</a> · <a href="SECURITY.md">Security Model</a>
+  <a href="#self-hosting">Self-Host in 5 Minutes</a> · <a href="SECURITY.md">Security Model</a>
+</p>
+
+<p align="center">
+  There's no single official Zapit instance to sign up for — this project isn't
+  centrally hosted. Instead, deploying your own copy is designed to be as close
+  to one click as possible:
+</p>
+
+<p align="center">
+  <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAzhwin05%2FZapit.io&root-directory=frontend&env=NEXT_PUBLIC_SIGNALING_URL&envDescription=wss%3A%2F%2F%20URL%20of%20your%20deployed%20signaling%20server%20(deploy%20that%20first%2C%20see%20the%20Koyeb%20button%20below%2C%20or%20use%20host%2F%20locally)&project-name=zapit&repository-name=zapit">
+    <img src="https://vercel.com/button" alt="Deploy frontend to Vercel" />
+  </a>
+  &nbsp;
+  <a href="https://app.koyeb.com/deploy?type=git&repository=github.com%2FAzhwin05%2FZapit.io&branch=main&workdir=signaling-server&instance_type=free&regions=fra&ports=8787%3Bhttp%3B%2F&env%5BNODE_ENV%5D=production&env%5BALLOWED_ORIGINS%5D=&env%5BMETERED_API_KEY%5D=&env%5BMETERED_API_HOST%5D=&name=zapit-signaling">
+    <img src="https://www.koyeb.com/static/images/deploy/button.svg" alt="Deploy signaling server to Koyeb" height="28" />
+  </a>
+</p>
+
+<p align="center">
+  <sub>Deploy the signaling server first (Koyeb), then the frontend (Vercel) —
+  pointing <code>NEXT_PUBLIC_SIGNALING_URL</code> at the <code>wss://</code>
+  address Koyeb gives you. Full walkthrough below if you want to understand
+  each step, or want to self-host with zero cloud accounts at all.</sub>
 </p>
 
 ---
@@ -86,7 +109,12 @@ See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulne
 
 ## Self-Hosting
 
-Everything you need to run Zapit yourself, for free.
+Everything you need to run Zapit yourself, for free. Want the fastest path?
+Use the **Deploy to Vercel** / **Deploy to Koyeb** buttons at the top of this
+page — they pre-fill both platforms' import flow from this repo. Everything
+below is the manual version of the same steps, for anyone who wants to
+understand (or customize) what those buttons are doing, or who wants a
+non-cloud option entirely.
 
 ### Option A — Docker Compose (recommended)
 
