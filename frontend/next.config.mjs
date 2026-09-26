@@ -28,13 +28,6 @@ const nextConfig = {
           { key: 'Service-Worker-Allowed', value: '/' },
         ],
       },
-      {
-        source: '/mitm.html',
-        headers: [
-          { key: 'Cache-Control',          value: 'no-cache, no-store, must-revalidate' },
-          { key: 'Service-Worker-Allowed', value: '/' },
-        ],
-      },
     ];
   },
 };
