@@ -35,6 +35,14 @@ interface NearbyDevice {
 export default function HomePage() {
   const [roomCode, setRoomCode]             = useState('');
   const [shareUrl, setShareUrl]             = useState('');
+  // window.location.origin is "localhost" whenever this device is the one
+  // hosting the page — correct for that device's own browser, but useless
+  // in a QR code, since "localhost" on the SCANNING phone means the phone
+  // itself, not this machine. /api/lan-ip asks the Next.js server (a real
+  // Node process) for this machine's actual LAN address, same heuristic
+  // used by desktop/main.js and host/start.mjs, so links/QRs work when
+  // just running `npm run dev` too.
+  const [lanOrigin, setLanOrigin]           = useState<string | null>(null);
   const [status, setStatus]                 = useState<ConnectionStatus>('idle');
   const [statusMsg, setStatusMsg]           = useState('');
   const [nearbyDevices, setNearbyDevices]   = useState<NearbyDevice[]>([]);
@@ -149,6 +157,27 @@ export default function HomePage() {
     },
     [updateTransfer, handleFileReceived, removePeer],
   );
+
+  // Only relevant when this page is being viewed via localhost/127.0.0.1
+  // (i.e. no reverse proxy/real domain already in front of it) — skips the
+  // extra request entirely for normal hosted deployments.
+  useEffect(() => {
+    const { protocol, hostname, port } = window.location;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') return;
+    fetch('/api/lan-ip')
+      .then((res) => res.json())
+      .then((data: { ip: string | null }) => {
+        if (data.ip) setLanOrigin(`${protocol}//${data.ip}${port ? `:${port}` : ''}`);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Re-point the share link/QR at the LAN address as soon as it's known,
+  // whichever room code is currently active (own room or a joined one).
+  useEffect(() => {
+    if (!lanOrigin || !roomCode) return;
+    setShareUrl(`${lanOrigin}?join=${roomCode}`);
+  }, [lanOrigin, roomCode]);
 
   useEffect(() => {
     const code = generateRoomCode();
