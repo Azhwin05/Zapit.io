@@ -101,7 +101,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulne
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS |
+| Frontend | Next.js 15, TypeScript, Tailwind CSS |
 | Transfer engine | WebRTC RTCDataChannel, custom chunked protocol |
 | Encryption | WebCrypto API (ECDH P-256 + AES-GCM-256) |
 | Signaling | Node.js, ws, Pino |
@@ -237,6 +237,11 @@ already points other devices at the right place with no extra setup.
 macOS/Linux use the identical `main.js` and build pipeline; someone running
 `electron-builder` on those platforms is all that's needed to add them.
 
+> **First-run note:** the installer isn't code-signed, so Windows SmartScreen
+> will show a "Windows protected your PC" warning the first time — click
+> **More info → Run anyway**. Code-signing needs a paid certificate; a
+> contributor with one is welcome to wire it into the `electron-builder` config.
+
 ## Running Locally
 
 ```bash
@@ -264,8 +269,8 @@ The most wanted contributions:
 
 ```
 zapit/
-├── frontend/               # Next.js 14 app
-│   ├── app/                # Routes: /, /privacy, /terms, error boundary
+├── frontend/               # Next.js 15 app
+│   ├── app/                # Routes: /, /privacy, /terms, /api/lan-ip, error boundary
 │   ├── components/         # UI: rooms, transfer, discovery, safety number, footer
 │   ├── public/sw.js        # PWA shell cache + Web Share Target handler
 │   └── lib/
@@ -280,6 +285,9 @@ zapit/
 │       ├── turn-credentials.ts
 │       └── rate-limiter.ts
 ├── host/start.mjs          # Self-hosting: one-command LAN launcher (see Option C)
+├── desktop/                # Self-hosting: double-click Windows installer (Electron, see Option D)
+│   ├── main.js             # Electron shell — starts both servers, loads via LAN IP, system tray
+│   └── scripts/prepare-resources.mjs  # Bundles frontend + signaling server into the app
 ├── coturn/turnserver.conf  # Self-hosting: coturn config template
 ├── docker-compose.yml      # Self-hosting: one-command cloud/Docker setup
 ├── .github/workflows/ci.yml
