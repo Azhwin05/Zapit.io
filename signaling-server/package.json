@@ -2,6 +2,7 @@
   "name": "zapit-signaling",
   "version": "1.0.0",
   "description": "WebRTC signaling server for Zapit.io",
+  "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
