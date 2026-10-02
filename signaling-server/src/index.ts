@@ -1,5 +1,7 @@
 import 'dotenv/config';
-import { createServer, type IncomingMessage } from 'http';
+import { createServer as createHttpServer, type IncomingMessage } from 'http';
+import { createServer as createHttpsServer } from 'https';
+import { readFileSync } from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
 import {
@@ -85,7 +87,15 @@ function resolveIp(req: IncomingMessage): string {
 
 const START_TIME = Date.now();
 
-const httpServer = createServer((req, res) => {
+// TLS: when cert/key paths are provided (LAN self-hosting over HTTPS), serve
+// WSS. An HTTPS frontend cannot open an insecure ws:// socket — the browser
+// blocks it as mixed content — so secure-context LAN mode requires this.
+// Without the paths we stay on plain HTTP/WS (behind a TLS proxy, or local).
+const TLS_CERT_FILE = process.env.TLS_CERT_FILE;
+const TLS_KEY_FILE = process.env.TLS_KEY_FILE;
+const USE_TLS = Boolean(TLS_CERT_FILE && TLS_KEY_FILE);
+
+const requestListener = (req: IncomingMessage, res: import('http').ServerResponse) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -101,7 +111,14 @@ const httpServer = createServer((req, res) => {
   }
 
   res.writeHead(200, { 'Content-Type': 'text/plain' }).end('Zapit signaling server');
-});
+};
+
+const httpServer = USE_TLS
+  ? createHttpsServer(
+      { cert: readFileSync(TLS_CERT_FILE!), key: readFileSync(TLS_KEY_FILE!) },
+      requestListener,
+    )
+  : createHttpServer(requestListener);
 
 // ── WebSocket server ─────────────────────────────────────────────────────────
 
