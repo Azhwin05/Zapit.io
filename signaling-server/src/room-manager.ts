@@ -1,4 +1,4 @@
-import type { Client, Room } from './types';
+import type { Client, Room, PublicRoom } from './types';
 
 const ROOM_TTL_MS        = 10 * 60 * 1000; // idle room purge
 // Mesh topology — every peer connects directly to every other peer, so cost
@@ -80,6 +80,7 @@ export function getNearbyClients(clientId: string): Client[] {
 export function joinRoom(
   client: Client,
   code: string,
+  roomName?: string,
 ): { ok: true; room: Room } | { ok: false; reason: 'full' } {
   let room = rooms.get(code);
   if (!room) {
@@ -87,10 +88,34 @@ export function joinRoom(
     rooms.set(code, room);
   }
   if (room.clients.size >= MAX_PEERS_PER_ROOM) return { ok: false, reason: 'full' };
+  // First namer wins — the room keeps the name its creator gave it; later
+  // joiners passing a name don't clobber it.
+  if (roomName && !room.name) room.name = roomName.slice(0, 40);
   room.clients.set(client.id, client);
   room.lastActivity = Date.now();
   client.roomCode = code;
   return { ok: true, room };
+}
+
+// All currently-active rooms, for the LAN room browser. Not IP-scoped: being
+// connected to this server already means you're on its network (in LAN mode
+// there's one server per network), so every room here is reachable. Never
+// call this path on a public cloud deployment — it's gated by LAN_MODE in
+// index.ts precisely so room codes aren't enumerable by strangers.
+export function getPublicRoomList(): PublicRoom[] {
+  return [...rooms.values()]
+    .filter((room) => room.clients.size > 0)
+    .map((room) => ({
+      code: room.code,
+      name: room.name,
+      peerCount: room.clients.size,
+      deviceNames: [...room.clients.values()].map((c) => c.name ?? 'Device'),
+    }));
+}
+
+// All connected clients — used to fan out live room-list updates in LAN mode.
+export function getAllClients(): Client[] {
+  return [...clients.values()];
 }
 
 export function leaveRoom(clientId: string, code: string): void {

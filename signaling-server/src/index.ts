@@ -13,6 +13,8 @@ import {
   getRoom,
   getStats,
   touchRoom,
+  getPublicRoomList,
+  getAllClients,
 } from './room-manager';
 import { getTurnCredentials } from './turn-credentials';
 import { isJoinRateLimited, isSignalingRateLimited } from './rate-limiter';
@@ -45,6 +47,12 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const PORT = parseInt(process.env.PORT ?? '8787', 10);
+
+// LAN mode: this server is a private rendezvous for one local network, so it
+// may expose the live list of active rooms (the "room browser"). A public
+// cloud deployment must leave this OFF — otherwise anyone could enumerate
+// every room code on the server. The host/ launcher and desktop app set it.
+const LAN_MODE = process.env.LAN_MODE === '1';
 
 // L3: Allowed WebSocket origins — only our own frontend may connect.
 const ALLOWED_ORIGINS = new Set(
@@ -118,6 +126,16 @@ function broadcast(roomCode: string, msg: SignalingMessage, excludeId?: string):
   }
 }
 
+// Push the live room list to everyone connected. No-op unless LAN_MODE is on,
+// so this is safe to call from any room mutation path unconditionally.
+function broadcastRoomList(): void {
+  if (!LAN_MODE) return;
+  const rooms = getPublicRoomList();
+  for (const client of getAllClients()) {
+    send(client.ws, { type: 'rooms-updated', payload: rooms });
+  }
+}
+
 wss.on('connection', (ws, req) => {
   const publicIp = resolveIp(req);
   const clientId = randomUUID();
@@ -138,6 +156,10 @@ wss.on('connection', (ws, req) => {
   const client: Client = { ws, roomCode: null, publicIp, id: clientId, joinedAt: Date.now() };
   addClient(client);
   logger.info({ clientId, publicIp }, 'client connected');
+
+  // LAN mode: hand the new client the current room list straight away so the
+  // room browser is populated the moment the app opens.
+  if (LAN_MODE) send(ws, { type: 'rooms-updated', payload: getPublicRoomList() });
 
   // Notify nearby devices (within discovery window).
   const nearby = getNearbyClients(clientId);
@@ -181,8 +203,15 @@ wss.on('connection', (ws, req) => {
           return;
         }
 
-        const result = joinRoom(client, roomCode);
+        // Carry optional labels for the LAN room browser.
+        if (typeof msg.name === 'string' && msg.name.trim()) {
+          client.name = msg.name.trim().slice(0, 40);
+        }
+        const roomName = typeof msg.roomName === 'string' ? msg.roomName : undefined;
+
+        const result = joinRoom(client, roomCode, roomName);
         if (!result.ok) { send(ws, { type: 'room-full' }); return; }
+        broadcastRoomList();
 
         // H5: Issue TURN credentials only after a room is joined.
         // getTurnCredentials() is cached after the first call; subsequent joins
@@ -210,6 +239,13 @@ wss.on('connection', (ws, req) => {
         broadcast(client.roomCode, { type: 'peer-left', from: clientId }, clientId);
         leaveRoom(clientId, client.roomCode);
         client.roomCode = null;
+        broadcastRoomList();
+        break;
+      }
+
+      case 'list-rooms': {
+        // Explicit refresh request. Ignored on public deployments.
+        if (LAN_MODE) send(ws, { type: 'rooms-updated', payload: getPublicRoomList() });
         break;
       }
 
@@ -238,6 +274,7 @@ wss.on('connection', (ws, req) => {
     const roomCode = client.roomCode;
     removeClient(clientId);
     if (roomCode) broadcast(roomCode, { type: 'peer-left', from: clientId });
+    broadcastRoomList();
     logger.info({ clientId, code }, 'client disconnected');
   });
 

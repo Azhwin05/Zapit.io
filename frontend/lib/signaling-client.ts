@@ -2,6 +2,13 @@
 
 import type { TurnCredentials } from './webrtc/peer-connection';
 
+export interface PublicRoom {
+  code: string;
+  name?: string;
+  peerCount: number;
+  deviceNames: string[];
+}
+
 export type SignalingEvent =
   | { type: 'connected' }
   | { type: 'disconnected' }
@@ -14,6 +21,7 @@ export type SignalingEvent =
   | { type: 'ice-candidate'; from: string; payload: RTCIceCandidateInit }
   | { type: 'turn-credentials'; payload: TurnCredentials }
   | { type: 'nearby-devices'; payload: Array<{ id: string; roomCode: string | null }> }
+  | { type: 'rooms-updated'; payload: PublicRoom[] }
   | { type: 'error'; payload: string };
 
 type Listener = (event: SignalingEvent) => void;
@@ -65,6 +73,7 @@ export class SignalingClient {
       if (type === 'room-full') { this.emit({ type: 'room-full' }); return; }
       if (type === 'turn-credentials') { this.emit({ type: 'turn-credentials', payload: msg.payload as TurnCredentials }); return; }
       if (type === 'nearby-devices') { this.emit({ type: 'nearby-devices', payload: msg.payload as Array<{ id: string; roomCode: string | null }> }); return; }
+      if (type === 'rooms-updated') { this.emit({ type: 'rooms-updated', payload: msg.payload as PublicRoom[] }); return; }
       if (type === 'offer')  { this.emit({ type: 'offer',  from: msg.from as string, payload: msg.payload as { sdp: RTCSessionDescriptionInit; ecdhPublicKey: string } }); return; }
       if (type === 'answer') { this.emit({ type: 'answer', from: msg.from as string, payload: msg.payload as { sdp: RTCSessionDescriptionInit; ecdhPublicKey: string } }); return; }
       if (type === 'ice-candidate') { this.emit({ type: 'ice-candidate', from: msg.from as string, payload: msg.payload as RTCIceCandidateInit }); return; }
@@ -92,12 +101,18 @@ export class SignalingClient {
     // extended disconnects. Signaling messages are best-effort by design.
   }
 
-  joinRoom(code: string): void {
-    this.send({ type: 'join', roomCode: code });
+  joinRoom(code: string, opts?: { name?: string; roomName?: string }): void {
+    this.send({ type: 'join', roomCode: code, name: opts?.name, roomName: opts?.roomName });
   }
 
   leaveRoom(): void {
     this.send({ type: 'leave' });
+  }
+
+  // Ask a LAN-mode server for the current room list. No-op on public servers,
+  // which simply don't respond with rooms-updated.
+  listRooms(): void {
+    this.send({ type: 'list-rooms' });
   }
 
   sendOffer(to: string, offer: RTCSessionDescriptionInit): void {

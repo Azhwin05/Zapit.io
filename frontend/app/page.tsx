@@ -8,6 +8,8 @@ import { pickSaveDirectory, isFileSystemAccessSupported } from '@/lib/webrtc/dis
 import { peerLabel } from '@/lib/peer-label';
 import { readSharedFiles } from '@/lib/share-target';
 import { resolveSignalingUrl, setSignalingUrlOverride, isValidSignalingUrl } from '@/lib/signaling-url';
+import { getDeviceName } from '@/lib/device-name';
+import type { PublicRoom } from '@/lib/signaling-client';
 import { NavBar } from '@/components/NavBar';
 import { LandingScreen } from '@/components/LandingScreen';
 import { DiscoveryScreen } from '@/components/DiscoveryScreen';
@@ -50,6 +52,12 @@ export default function HomePage() {
   const [transfers, setTransfers]           = useState<(TransferProgress & { peerId: string })[]>([]);
   const [receivedFiles, setReceivedFiles]   = useState<(ReceivedResult & { peerId: string })[]>([]);
   const [hasStarted, setHasStarted]         = useState(false);
+  // LAN room browser: populated only when connected to a LAN-mode signaling
+  // server (it pushes `rooms-updated`; a public cloud server never does, so
+  // `lanMode` stays false and the browser UI never shows). Lets a device see
+  // every active room on the network and click to join — no code typing.
+  const [lanRooms, setLanRooms]             = useState<PublicRoom[]>([]);
+  const [lanMode, setLanMode]               = useState(false);
   // Distinguishes "I created this room, show my code for others to scan" from
   // "I'm joining someone else's room" — both used to render the same
   // DiscoveryScreen (your own room code + QR), which is actively misleading
@@ -243,8 +251,9 @@ export default function HomePage() {
         case 'connected': {
           setStatus('waiting');
           setStatusMsg('');
-          // Rejoin active room on (re)connect
-          if (activeRoomRef.current) sig.joinRoom(activeRoomRef.current);
+          // Rejoin active room on (re)connect, carrying our device name so the
+          // room browser keeps showing us correctly after a reconnect.
+          if (activeRoomRef.current) sig.joinRoom(activeRoomRef.current, { name: getDeviceName() });
           break;
         }
 
@@ -268,6 +277,13 @@ export default function HomePage() {
             const newDevices = event.payload.filter((d) => !ids.has(d.id));
             return [...prev, ...newDevices];
           });
+          break;
+
+        case 'rooms-updated':
+          // Only a LAN-mode server sends this, so its arrival is itself the
+          // signal that the room browser should be available.
+          setLanMode(true);
+          setLanRooms(event.payload);
           break;
 
         case 'peer-joined': {
@@ -325,19 +341,19 @@ export default function HomePage() {
 
   // ── User-action handlers ──────────────────────────────────────────────────
 
-  const handleCreateRoom = useCallback(() => {
+  const handleCreateRoom = useCallback((roomName?: string) => {
     if (!sigRef.current || !roomCode) return;
     activeRoomRef.current = roomCode;
     setHasStarted(true);
     setIsHost(true);
-    sigRef.current.joinRoom(roomCode);
+    sigRef.current.joinRoom(roomCode, { name: getDeviceName(), roomName });
   }, [roomCode]);
 
   const handleJoinRoom = useCallback(() => {
     // Transition to Discovery so user can enter a code
     if (!hasStarted && sigRef.current && roomCode) {
       activeRoomRef.current = roomCode;
-      sigRef.current.joinRoom(roomCode);
+      sigRef.current.joinRoom(roomCode, { name: getDeviceName() });
     }
     setHasStarted(true);
   }, [hasStarted, roomCode]);
@@ -350,7 +366,7 @@ export default function HomePage() {
     setHasStarted(true);
     setIsHost(false);
     sigRef.current.leaveRoom();
-    sigRef.current.joinRoom(code);
+    sigRef.current.joinRoom(code, { name: getDeviceName() });
     setStatus('waiting');
     setStatusMsg('');
   }, []);
@@ -450,6 +466,8 @@ export default function HomePage() {
           onCreateRoom={handleCreateRoom}
           onJoinRoom={handleJoinRoom}
           connecting={status === 'idle'}
+          lanRooms={lanRooms}
+          onJoinCode={handleJoinCode}
         />
       )}
 

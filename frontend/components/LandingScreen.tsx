@@ -1,14 +1,18 @@
 'use client';
 
 import { Lock, UserX, Monitor } from 'lucide-react';
+import { LanRoomBrowser } from './LanRoomBrowser';
+import type { PublicRoom } from '@/lib/signaling-client';
 
 interface LandingScreenProps {
   onCreateRoom: () => void;
   onJoinRoom: () => void;
   connecting: boolean;
+  lanRooms: PublicRoom[];
+  onJoinCode: (code: string) => void;
 }
 
-export function LandingScreen({ onCreateRoom, onJoinRoom, connecting }: LandingScreenProps) {
+export function LandingScreen({ onCreateRoom, onJoinRoom, connecting, lanRooms, onJoinCode }: LandingScreenProps) {
   return (
     <main className="flex-grow flex flex-col items-center justify-center px-6 py-24 animate-fade-in">
       <div className="w-full max-w-3xl mx-auto text-center flex flex-col items-center gap-10">
@@ -25,7 +29,7 @@ export function LandingScreen({ onCreateRoom, onJoinRoom, connecting }: LandingS
         {/* CTAs */}
         <div className="flex flex-col sm:flex-row items-center gap-4 mt-4">
           <button
-            onClick={onCreateRoom}
+            onClick={() => onCreateRoom()}
             disabled={connecting}
             className="w-full sm:w-auto px-12 py-4 bg-primary text-white rounded-btn font-body font-medium text-lg
                        hover:bg-primary-dim transition-all shadow-primary-glow hover:shadow-primary-hover
@@ -41,6 +45,9 @@ export function LandingScreen({ onCreateRoom, onJoinRoom, connecting }: LandingS
             Join Room
           </button>
         </div>
+
+        {/* Live room browser — only appears in LAN mode when rooms are active */}
+        <LanRoomBrowser rooms={lanRooms} onJoin={onJoinCode} />
 
         {/* Trust badges */}
         <div className="flex flex-wrap justify-center gap-8 pt-10 mt-2 border-t border-surface-high w-full max-w-lg">

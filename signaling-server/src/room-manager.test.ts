@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 import {
   canAddClient, addClient, removeClient, getClient, getNearbyClients,
   joinRoom, leaveRoom, getRoom, getStats, touchRoom, __resetForTests,
+  getPublicRoomList, getAllClients,
 } from './room-manager';
 import type { Client } from './types';
 
@@ -153,5 +154,61 @@ describe('getStats', () => {
     addClient(makeClient('b', '5.6.7.8'));
     joinRoom(getClient('a')!, 'room1');
     expect(getStats()).toEqual({ connections: 2, rooms: 1 });
+  });
+});
+
+describe('room names (LAN room browser)', () => {
+  it('first namer wins; later joiners do not clobber the room name', () => {
+    joinRoom(makeClient('c1', '1.2.3.4'), 'abc123', 'Design Team');
+    joinRoom(makeClient('c2', '1.2.3.5'), 'abc123', 'Something Else');
+    expect(getRoom('abc123')?.name).toBe('Design Team');
+  });
+
+  it('a room with no name given stays unnamed', () => {
+    joinRoom(makeClient('c1', '1.2.3.4'), 'abc123');
+    expect(getRoom('abc123')?.name).toBeUndefined();
+  });
+
+  it('caps an over-long room name at 40 chars', () => {
+    joinRoom(makeClient('c1', '1.2.3.4'), 'abc123', 'x'.repeat(100));
+    expect(getRoom('abc123')?.name?.length).toBe(40);
+  });
+});
+
+describe('getPublicRoomList', () => {
+  it('lists active rooms with code, name, peer count and device names', () => {
+    const a = makeClient('a', '1.2.3.4'); a.name = 'Ashwin Laptop';
+    const b = makeClient('b', '1.2.3.5'); b.name = 'Phone';
+    addClient(a); addClient(b);
+    joinRoom(a, 'abc123', 'Design Team');
+    joinRoom(b, 'abc123');
+    const list = getPublicRoomList();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ code: 'abc123', name: 'Design Team', peerCount: 2 });
+    expect(list[0].deviceNames.sort()).toEqual(['Ashwin Laptop', 'Phone']);
+  });
+
+  it('falls back to "Device" when a client has no name', () => {
+    const a = makeClient('a', '1.2.3.4');
+    addClient(a);
+    joinRoom(a, 'abc123');
+    expect(getPublicRoomList()[0].deviceNames).toEqual(['Device']);
+  });
+
+  it('excludes empty rooms and reflects an emptied room disappearing', () => {
+    const a = makeClient('a', '1.2.3.4');
+    addClient(a);
+    joinRoom(a, 'abc123');
+    expect(getPublicRoomList()).toHaveLength(1);
+    leaveRoom('a', 'abc123');
+    expect(getPublicRoomList()).toHaveLength(0);
+  });
+});
+
+describe('getAllClients', () => {
+  it('returns every connected client regardless of room or IP', () => {
+    addClient(makeClient('a', '1.2.3.4'));
+    addClient(makeClient('b', '5.6.7.8'));
+    expect(getAllClients().map((c) => c.id).sort()).toEqual(['a', 'b']);
   });
 });
