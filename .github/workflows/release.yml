@@ -18,6 +18,8 @@ on:
       - main-tqiv8x # dev builds → a rolling "v1.0.0-dev" pre-release
     tags:
       - 'v*' # a real version tag → a clean release of that version
+    paths-ignore:
+      - '**.md' # don't rebuild the installer for docs-only changes
   workflow_dispatch:
     inputs:
       tag:

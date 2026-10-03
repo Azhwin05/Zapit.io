@@ -230,10 +230,12 @@ The `host/` launcher above still needs Node.js installed and a terminal.
 `desktop/` packages the exact same idea as a real installer instead —
 Electron bundles its own Node runtime, so end users install nothing.
 
-**Download:** grab the latest Windows installer from the
-[**Releases**](../../releases/latest) page — click the `.exe`, run it, done.
-(Releases are built automatically on a Windows runner by
-`.github/workflows/release.yml` whenever a `v*` tag is pushed.)
+**Download:** grab the Windows installer from the
+[**Releases**](../../releases) page — click the `.exe`, run it, done. The
+current build is published as the `v1.0.0-dev` pre-release. (Releases are
+built automatically on a Windows runner by `.github/workflows/release.yml` —
+every push to the dev branch refreshes the pre-release, and a `v*` tag cuts a
+clean versioned release.)
 
 Prefer to build it yourself?
 
