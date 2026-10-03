@@ -1,0 +1,81 @@
+name: Release — build Windows installer
+
+# Builds the Zapit desktop installer (.exe) on a real Windows runner and
+# attaches it to a GitHub Release, so the Releases page gets a public
+# "Download" link to an actual installer. Cross-building a Windows installer
+# off Windows is fragile (needs wine + the Windows Electron binary), so this
+# runs natively on windows-latest.
+#
+# Two ways to trigger:
+#   1. Push a version tag:  git tag v1.0.0 && git push origin v1.0.0
+#   2. Actions tab → "Release — build Windows installer" → Run workflow,
+#      pick the branch, and type a tag (e.g. v1.0.0). The tag is created on
+#      the chosen commit.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create (e.g. v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write # needed to create the Release and upload the .exe asset
+
+jobs:
+  windows-installer:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          # The repo has no root lockfile — the three packages each have their
+          # own, so point the cache at all of them (a bare `cache: npm` would
+          # fail to find a lockfile at the repo root).
+          cache-dependency-path: |
+            frontend/package-lock.json
+            signaling-server/package-lock.json
+            desktop/package-lock.json
+
+      # prepare-resources.mjs runs `npm run build` inside frontend/ and
+      # signaling-server/, so their (dev) deps must be installed first.
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install signaling-server deps
+        working-directory: signaling-server
+        run: npm ci
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      # Builds + bundles the frontend and signaling server into
+      # desktop/resources/, then packages the NSIS installer. --publish never
+      # keeps electron-builder from trying to publish on its own — the upload
+      # step below owns that.
+      - name: Build installer
+        working-directory: desktop
+        run: npm run dist:win -- --publish never
+
+      - name: List build output
+        working-directory: desktop
+        run: dir dist
+
+      - name: Create / update Release and attach the installer
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            desktop/dist/*.exe

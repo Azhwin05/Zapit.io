@@ -228,7 +228,14 @@ thing the QR code does.
 
 The `host/` launcher above still needs Node.js installed and a terminal.
 `desktop/` packages the exact same idea as a real installer instead —
-Electron bundles its own Node runtime, so end users install nothing:
+Electron bundles its own Node runtime, so end users install nothing.
+
+**Download:** grab the latest Windows installer from the
+[**Releases**](../../releases/latest) page — click the `.exe`, run it, done.
+(Releases are built automatically on a Windows runner by
+`.github/workflows/release.yml` whenever a `v*` tag is pushed.)
+
+Prefer to build it yourself?
 
 ```bash
 cd desktop && npm install

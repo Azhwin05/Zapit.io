@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Zapit desktop app — double-click, and this machine becomes both the server and a peer. No Node.js install required on the end user's machine; bundles everything, including the runtime (via Electron's embedded Node).",
+  "author": "Zapit",
   "main": "main.js",
   "scripts": {
     "prebuild:resources": "node scripts/prepare-resources.mjs",
