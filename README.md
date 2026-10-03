@@ -258,6 +258,17 @@ code typing, no manual setup.
 > — without it, `window.crypto.subtle` is undefined and Zapit's encryption
 > can't run. One tap, once per device.
 
+> **First-run firewall prompt (host):** the first time it runs, Windows (or
+> macOS) asks whether to allow Zapit to accept incoming connections. **Allow
+> it on Private networks** — otherwise other devices can't reach the host and
+> the QR link will just time out.
+
+> **Devices must be on the same network, without client isolation.** Some
+> routers (and most public/guest Wi-Fi) enable "AP isolation" / "client
+> isolation", which blocks device-to-device traffic even on the same SSID. If
+> a phone that scanned the QR can't reach the host, that's the usual cause —
+> use a home/private network, or disable client isolation in the router.
+
 > **First-run note (Windows):** the installer isn't code-signed, so Windows
 > SmartScreen will show a "Windows protected your PC" warning the first time —
 > click **More info → Run anyway**. Code-signing needs a paid certificate; a
