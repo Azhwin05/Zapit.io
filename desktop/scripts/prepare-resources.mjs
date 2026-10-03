@@ -56,10 +56,12 @@ function prepareFrontend() {
   const dest = path.join(RESOURCES_DIR, 'frontend');
   freshDir(dest);
 
-  // Baked to match main.js's local signaling server port — the desktop app
-  // is always both the server and a peer, so this is always correct for it
-  // (unlike the hosted-deployment case, where the URL varies per deployer).
-  run(NPM, ['run', 'build'], src, { NEXT_PUBLIC_SIGNALING_URL: 'ws://localhost:8787' });
+  // Baked to match main.js's local signaling server over TLS (wss) — the
+  // desktop app serves HTTPS/WSS, and the window loads over https, so the
+  // default must be wss to avoid a mixed-content block if the ?signaling=
+  // override is ever absent. The window passes ?signaling=wss://localhost:8787
+  // explicitly anyway, so this is a belt-and-suspenders default.
+  run(NPM, ['run', 'build'], src, { NEXT_PUBLIC_SIGNALING_URL: 'wss://localhost:8787' });
 
   cpSync(path.join(src, '.next'), path.join(dest, '.next'), { recursive: true });
   cpSync(path.join(src, 'public'), path.join(dest, 'public'), { recursive: true });
@@ -68,6 +70,9 @@ function prepareFrontend() {
   cpSync(path.join(src, 'next.config.mjs'), path.join(dest, 'next.config.mjs'));
   cpSync(path.join(src, 'middleware.ts'), path.join(dest, 'middleware.ts'));
   cpSync(path.join(src, 'tsconfig.json'), path.join(dest, 'tsconfig.json'));
+  // The custom HTTPS server main.js launches instead of `next start` (which
+  // is HTTP-only). Without it the desktop app can't serve a secure context.
+  cpSync(path.join(src, 'server.mjs'), path.join(dest, 'server.mjs'));
 
   run(NPM, ['ci', '--omit=dev'], dest);
 }

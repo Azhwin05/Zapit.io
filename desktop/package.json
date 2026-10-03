@@ -9,6 +9,9 @@
     "dev": "npm run prebuild:resources && electron .",
     "dist:win": "npm run prebuild:resources && electron-builder --win"
   },
+  "dependencies": {
+    "selfsigned": "^5.5.0"
+  },
   "devDependencies": {
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3"
@@ -18,6 +21,7 @@
     "productName": "Zapit",
     "files": [
       "main.js",
+      "cert.mjs",
       "tray-icon.png"
     ],
     "extraResources": [

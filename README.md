@@ -202,6 +202,13 @@ any phone/laptop on the same network and they're in, already pointed at
 your machine. It also opens your own browser automatically, so your laptop
 is both the server and a full participant. Ctrl+C stops everything.
 
+Everything is served over **HTTPS/WSS** with a self-signed LAN certificate —
+required so guest browsers grant a secure context (without it
+`window.crypto.subtle`, and so the whole encryption layer, is undefined on a
+plain `http://` LAN origin). The first time each guest device opens the link
+it shows a one-time "connection is not private" warning; choose
+**Advanced → Proceed**. One tap, once per device.
+
 Prefer to do it by hand, or point an *existing* deployment (e.g. the public
 site) at your own server instead of running the frontend locally too? The
 underlying piece is the signaling server on its own:
@@ -230,16 +237,30 @@ npm run dist:win
 ```
 
 Double-clicking the installed app starts both the signaling server and the
-frontend locally, opens a window (this machine is a full peer), adds a
-system tray icon, and — because the window loads via this machine's real
-LAN address rather than `localhost` — the app's own Share Link/QR code
-already points other devices at the right place with no extra setup.
-macOS/Linux use the identical `main.js` and build pipeline; someone running
-`electron-builder` on those platforms is all that's needed to add them.
+frontend locally over **HTTPS/WSS** (using a self-signed LAN certificate —
+same as `host/`), opens a window (this machine is a full peer), and adds a
+system tray icon. The window loads `https://localhost`, which is a *secure
+context* so the app's encryption works, and the app trusts its own
+certificate so **the host sees no warning**. macOS/Linux use the identical
+`main.js` and build pipeline; someone running `electron-builder` on those
+platforms is all that's needed to add them.
 
-> **First-run note:** the installer isn't code-signed, so Windows SmartScreen
-> will show a "Windows protected your PC" warning the first time — click
-> **More info → Run anyway**. Code-signing needs a paid certificate; a
+**Join from your phone.** The in-app Share Link/QR code is built from this
+machine's real LAN address *and* carries the signaling-server override, so a
+phone on the same Wi-Fi just scans it and lands straight in the room — no
+code typing, no manual setup.
+
+> **One-time certificate warning (guests only):** because the LAN certificate
+> is self-signed (there's no certificate authority for a random LAN IP), each
+> guest device shows a "connection is not private" / "not secure" warning the
+> *first* time it opens the link. Choose **Advanced → Proceed** (wording
+> varies by browser). This is required so the browser grants a secure context
+> — without it, `window.crypto.subtle` is undefined and Zapit's encryption
+> can't run. One tap, once per device.
+
+> **First-run note (Windows):** the installer isn't code-signed, so Windows
+> SmartScreen will show a "Windows protected your PC" warning the first time —
+> click **More info → Run anyway**. Code-signing needs a paid certificate; a
 > contributor with one is welcome to wire it into the `electron-builder` config.
 
 ## Running Locally
@@ -286,7 +307,8 @@ zapit/
 │       └── rate-limiter.ts
 ├── host/start.mjs          # Self-hosting: one-command LAN launcher (see Option C)
 ├── desktop/                # Self-hosting: double-click Windows installer (Electron, see Option D)
-│   ├── main.js             # Electron shell — starts both servers, loads via LAN IP, system tray
+│   ├── main.js             # Electron shell — starts both servers over HTTPS/WSS, loads https://localhost, system tray
+│   ├── cert.mjs            # Self-signed LAN TLS cert (mirror of host/cert.mjs)
 │   └── scripts/prepare-resources.mjs  # Bundles frontend + signaling server into the app
 ├── coturn/turnserver.conf  # Self-hosting: coturn config template
 ├── docker-compose.yml      # Self-hosting: one-command cloud/Docker setup

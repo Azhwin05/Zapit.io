@@ -5,20 +5,24 @@
 // user's machine, because child processes run using Electron's OWN embedded
 // Node runtime (the ELECTRON_RUN_AS_NODE trick below), not a system Node.
 //
-// Key design decision: the BrowserWindow loads the app via this machine's
-// LAN IP (e.g. http://192.168.1.42:3210), not http://localhost:3210. This
-// is deliberate — the web app's own "Share Link"/QR features build their
-// join URL from `window.location.origin`, so loading via the LAN-reachable
-// address means those features correctly produce a link other devices on
-// the network can actually use, with ZERO changes needed in the frontend
-// itself. Falls back to localhost only if no LAN interface is found (the
-// user just can't invite others in that case, but the app still works
-// standalone).
+// Secure LAN mode (mirrors host/start.mjs): guest devices load the app over
+// the network at this machine's LAN IP, which is a NON-secure origin over
+// http:// — and browsers make window.crypto.subtle (Zapit's whole ECDH/AES
+// layer) UNDEFINED there. So we serve HTTPS/WSS using a cached self-signed
+// cert (see cert.mjs). This machine's OWN window loads https://localhost —
+// a secure context, so crypto works — and we trust our own cert for it via
+// setCertificateVerifyProc, so the host never sees a warning. Guests see the
+// usual one-time "not private" warning and click through (it's the price of
+// a secure context for a random LAN IP with no CA). The QR/share link the
+// app shows is built from this machine's LAN address (via /api/lan-ip) and
+// carries the signaling override, so a scanning phone reaches the right host.
 
-const { app, BrowserWindow, Tray, Menu, shell, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, dialog, session } = require('electron');
 const { spawn } = require('node:child_process');
-const { networkInterfaces } = require('node:os');
+const { networkInterfaces, tmpdir } = require('node:os');
+const { readFileSync } = require('node:fs');
 const http = require('node:http');
+const https = require('node:https');
 const path = require('node:path');
 
 const SIGNALING_PORT = 8787;
@@ -31,6 +35,13 @@ const children = [];
 let tray = null;
 let mainWindow = null;
 let quitting = false;
+// Set once the TLS cert is ready; used by startServers, the window URL, and
+// the certificate-verify hook. Stays null only if cert generation failed, in
+// which case we degrade to http://localhost (still a secure context for the
+// host's own window — guests just can't join).
+let tls = null; // { certFile, keyFile, certPem }
+const scheme = () => (tls ? 'https' : 'http');
+const wsScheme = () => (tls ? 'wss' : 'ws');
 
 function killChildren() {
   for (const child of children) {
@@ -56,9 +67,14 @@ function spawnBundledNode(scriptPath, args, cwd, extraEnv) {
 
 function waitForHttp(url, timeoutMs = 30_000) {
   const start = Date.now();
+  // rejectUnauthorized:false — our LAN cert is self-signed, so the health
+  // probe must not reject it (the browser warning is the guest's to accept;
+  // the host window trusts it via setCertificateVerifyProc).
+  const client = url.startsWith('https:') ? https : http;
+  const opts = url.startsWith('https:') ? { rejectUnauthorized: false } : {};
   return new Promise((resolve, reject) => {
     const tick = () => {
-      const req = http.get(url, (res) => { res.resume(); resolve(); });
+      const req = client.get(url, opts, (res) => { res.resume(); resolve(); });
       req.on('error', () => {
         if (Date.now() - start > timeoutMs) reject(new Error(`Timed out waiting for ${url}`));
         else setTimeout(tick, 400);
@@ -100,17 +116,53 @@ function getLanIp() {
   return candidates[0]?.address ?? null;
 }
 
+// Generate (or reuse) the self-signed LAN cert. cert.mjs is ESM, so it's
+// loaded via dynamic import from this CommonJS entry point. Returns null on
+// any failure so startup can degrade to plain http://localhost rather than
+// refusing to launch.
+async function prepareTls(lanIp) {
+  try {
+    const { ensureCert } = await import('./cert.mjs');
+    const { certFile, keyFile } = await ensureCert(path.join(tmpdir(), 'zapit-cert'), lanIp);
+    return { certFile, keyFile, certPem: readFileSync(certFile, 'utf8') };
+  } catch (err) {
+    console.error('[zapit] TLS cert generation failed — falling back to http://localhost:', err);
+    return null;
+  }
+}
+
+// Trust ONLY our own self-signed cert, and only for our own hostnames, so the
+// host's window (and its wss:// socket to the local signaling server) loads
+// without a warning. Everything else defers to Chromium's normal verification
+// — this is not a blanket "accept all certs".
+function installCertTrust(lanIp) {
+  if (!tls) return;
+  const ourHosts = new Set(['localhost', '127.0.0.1']);
+  if (lanIp) ourHosts.add(lanIp);
+  const normalize = (pem) => pem.replace(/\s+/g, '');
+  const ourCert = normalize(tls.certPem);
+
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    const matchesOurCert = request.certificate && normalize(request.certificate.data ?? '') === ourCert;
+    if (ourHosts.has(request.hostname) && matchesOurCert) {
+      callback(0); // 0 = success: trust our cert
+    } else {
+      callback(-3); // -3 = use Chromium's own verification result
+    }
+  });
+}
+
 async function startServers(lanIp) {
+  const tlsEnv = tls ? { TLS_CERT_FILE: tls.certFile, TLS_KEY_FILE: tls.keyFile } : {};
+
   // The signaling server refuses to start in production without
   // ALLOWED_ORIGINS (a deliberate boot-time guard — see
-  // signaling-server/src/index.ts — that exists so a real cloud deployment
-  // can't accidentally run as an open relay for any website). For this app,
-  // every client (this window, and any guest device that joins) loads the
-  // frontend from the same place: this machine's LAN address if one was
-  // found, otherwise localhost. Both are included so the app still starts
-  // even when no LAN interface is detected.
-  const origins = [`http://localhost:${FRONTEND_PORT}`];
-  if (lanIp) origins.push(`http://${lanIp}:${FRONTEND_PORT}`);
+  // signaling-server/src/index.ts — so a real cloud deployment can't run as
+  // an open relay for any website). Every client (this window, and any guest
+  // device that joins) loads the frontend from the same place; include both
+  // localhost and the LAN address so the app still starts with no LAN found.
+  const origins = [`${scheme()}://localhost:${FRONTEND_PORT}`];
+  if (lanIp) origins.push(`${scheme()}://${lanIp}:${FRONTEND_PORT}`);
 
   const signalingEntry = path.join(resourcesPath, 'signaling-server', 'dist', 'index.js');
   const signalingCwd = path.join(resourcesPath, 'signaling-server');
@@ -118,18 +170,26 @@ async function startServers(lanIp) {
     PORT: String(SIGNALING_PORT),
     NODE_ENV: 'production',
     ALLOWED_ORIGINS: origins.join(','),
+    LAN_MODE: '1', // live room browser — see every room on the network, click to join
+    ...tlsEnv,
   });
-  await waitForHttp(`http://localhost:${SIGNALING_PORT}/health`);
+  await waitForHttp(`${scheme()}://localhost:${SIGNALING_PORT}/health`);
 
-  const nextEntry = path.join(resourcesPath, 'frontend', 'node_modules', 'next', 'dist', 'bin', 'next');
+  // Serve the frontend via the custom server (server.mjs) so it can speak
+  // HTTPS when a cert is present — `next start` is HTTP-only. Falls back to
+  // HTTP transparently when tls is null.
+  const frontendEntry = path.join(resourcesPath, 'frontend', 'server.mjs');
   const frontendCwd = path.join(resourcesPath, 'frontend');
-  spawnBundledNode(nextEntry, ['start', '-p', String(FRONTEND_PORT)], frontendCwd, {
+  spawnBundledNode(frontendEntry, [], frontendCwd, {
     NODE_ENV: 'production',
+    PORT: String(FRONTEND_PORT),
+    HOSTNAME: '0.0.0.0',
+    ...tlsEnv,
   });
-  await waitForHttp(`http://localhost:${FRONTEND_PORT}`);
+  await waitForHttp(`${scheme()}://localhost:${FRONTEND_PORT}`);
 }
 
-function createWindow(loadHost) {
+function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1080,
     height: 760,
@@ -140,7 +200,13 @@ function createWindow(loadHost) {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
 
-  mainWindow.loadURL(`http://${loadHost}:${FRONTEND_PORT}`);
+  // Load via localhost (a secure context, so crypto works) rather than the
+  // LAN IP — the app's own /api/lan-ip call rewrites the share link/QR to the
+  // LAN address for us, so loading via localhost costs nothing. The
+  // ?signaling= override points this window at the local WSS signaling server
+  // and is remembered on the device (see lib/signaling-url.ts).
+  const windowUrl = `${scheme()}://localhost:${FRONTEND_PORT}/?signaling=${wsScheme()}://localhost:${SIGNALING_PORT}`;
+  mainWindow.loadURL(windowUrl);
 
   // Closing the window hides to tray instead of quitting — the signaling
   // server should keep running for any peers still connected to it. Real
@@ -169,7 +235,7 @@ function createTray(lanIp) {
     { label: 'Show Zapit', click: () => mainWindow?.show() },
     { type: 'separator' },
     {
-      label: lanIp ? `On your network: http://${lanIp}:${FRONTEND_PORT}` : 'No LAN address detected',
+      label: lanIp ? `On your network: ${scheme()}://${lanIp}:${FRONTEND_PORT}` : 'No LAN address detected',
       enabled: false,
     },
     { type: 'separator' },
@@ -188,6 +254,11 @@ function createTray(lanIp) {
 app.whenReady().then(async () => {
   const lanIp = getLanIp();
 
+  // Order matters: the cert must exist (and carry the LAN IP in its SAN)
+  // before any server starts or any window loads over https.
+  tls = await prepareTls(lanIp);
+  installCertTrust(lanIp);
+
   try {
     await startServers(lanIp);
   } catch (err) {
@@ -199,7 +270,7 @@ app.whenReady().then(async () => {
     return;
   }
 
-  createWindow(lanIp ?? 'localhost');
+  createWindow();
   createTray(lanIp);
 
   if (!lanIp) {
