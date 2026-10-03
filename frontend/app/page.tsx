@@ -7,7 +7,8 @@ import { ZapitPeer } from '@/lib/webrtc/peer-connection';
 import { pickSaveDirectory, isFileSystemAccessSupported } from '@/lib/webrtc/disk-writer';
 import { peerLabel } from '@/lib/peer-label';
 import { readSharedFiles } from '@/lib/share-target';
-import { resolveSignalingUrl, setSignalingUrlOverride, isValidSignalingUrl } from '@/lib/signaling-url';
+import { resolveSignalingUrl, setSignalingUrlOverride, isValidSignalingUrl, getSignalingUrlOverride } from '@/lib/signaling-url';
+import { buildShareUrl, remapSignalingHost } from '@/lib/share-url';
 import { getDeviceName } from '@/lib/device-name';
 import type { PublicRoom } from '@/lib/signaling-client';
 import { NavBar } from '@/components/NavBar';
@@ -181,10 +182,16 @@ export default function HomePage() {
   }, []);
 
   // Re-point the share link/QR at the LAN address as soon as it's known,
-  // whichever room code is currently active (own room or a joined one).
+  // whichever room code is currently active (own room or a joined one). In
+  // LAN mode (a custom signaling override is active) we also fold the host's
+  // signaling server into the link — remapped from localhost to the host's
+  // LAN IP — so a device scanning the QR adopts the right signaling server
+  // instead of falling back to its own build-time default. See lib/share-url.
   useEffect(() => {
     if (!lanOrigin || !roomCode) return;
-    setShareUrl(`${lanOrigin}?join=${roomCode}`);
+    const override = getSignalingUrlOverride();
+    const signaling = override ? remapSignalingHost(override, new URL(lanOrigin).hostname) : null;
+    setShareUrl(buildShareUrl(lanOrigin, roomCode, signaling));
   }, [lanOrigin, roomCode]);
 
   useEffect(() => {
