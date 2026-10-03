@@ -14,8 +14,10 @@ name: Release — build Windows installer
 
 on:
   push:
+    branches:
+      - main-tqiv8x # dev builds → a rolling "v1.0.0-dev" pre-release
     tags:
-      - 'v*'
+      - 'v*' # a real version tag → a clean release of that version
   workflow_dispatch:
     inputs:
       tag:
@@ -71,11 +73,16 @@ jobs:
         working-directory: desktop
         run: dir dist
 
+      # A real `v*` tag publishes a clean release of that version. Anything
+      # else (a push to main-tqiv8x, or a manual dispatch without a tag)
+      # publishes/updates a single rolling pre-release so there's always a
+      # current installer to download while we iterate.
       - name: Create / update Release and attach the installer
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          name: ${{ inputs.tag || github.ref_name }}
+          tag_name: ${{ (github.ref_type == 'tag' && github.ref_name) || inputs.tag || 'v1.0.0-dev' }}
+          name: ${{ (github.ref_type == 'tag' && github.ref_name) || inputs.tag || 'Latest dev build (main-tqiv8x)' }}
+          prerelease: ${{ github.ref_type != 'tag' }}
           generate_release_notes: true
           files: |
             desktop/dist/*.exe
