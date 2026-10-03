@@ -8,6 +8,7 @@
     "start": "node start.mjs"
   },
   "dependencies": {
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "selfsigned": "^5.5.0"
   }
 }

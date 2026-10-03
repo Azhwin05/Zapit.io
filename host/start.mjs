@@ -12,12 +12,14 @@
 // a full peer in the mesh, not just a server.
 
 import { spawn } from 'node:child_process';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import qrcode from 'qrcode';
+import { ensureCert } from './cert.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -82,9 +84,13 @@ function spawnLong(cmd, args, cwd, env = {}) {
 
 function waitForHttp(url, timeoutMs = 30_000) {
   const start = Date.now();
+  // rejectUnauthorized:false — our LAN cert is self-signed, so the health
+  // probe must not reject it (the browser warning is the user's to accept).
+  const client = url.startsWith('https:') ? https : http;
+  const opts = url.startsWith('https:') ? { rejectUnauthorized: false } : {};
   return new Promise((resolve, reject) => {
     const tick = () => {
-      const req = http.get(url, (res) => {
+      const req = client.get(url, opts, (res) => {
         res.resume();
         resolve();
       });
@@ -156,37 +162,57 @@ async function main() {
     await run(NPM, ['run', 'build'], FRONTEND_DIR, 'frontend build').catch(fail);
   }
 
-  // ── Start both servers ──────────────────────────────────────────────────
+  // ── Work out the LAN IP + TLS cert BEFORE starting anything ─────────────
+  // Order matters: guests load the app over HTTPS at this LAN IP (an http://
+  // LAN origin has no window.crypto.subtle — see cert.mjs), and the cert must
+  // carry the IP in its SAN, so we need the IP first.
+  const lanIp = getLanIp();
+  log('Preparing a local HTTPS certificate…');
+  const { certFile, keyFile } = await ensureCert(path.join(tmpdir(), 'zapit-cert'), lanIp);
+  const tlsEnv = { TLS_CERT_FILE: certFile, TLS_KEY_FILE: keyFile };
+
+  // ── Start both servers (HTTPS / WSS, LAN room browser on) ───────────────
   log(`Starting signaling server on port ${SIGNALING_PORT}…`);
-  spawnLong('node', ['dist/index.js'], SIGNALING_DIR, { PORT: String(SIGNALING_PORT) });
-  await waitForHttp(`http://localhost:${SIGNALING_PORT}/health`).catch(() =>
+  spawnLong('node', ['dist/index.js'], SIGNALING_DIR, {
+    PORT: String(SIGNALING_PORT),
+    LAN_MODE: '1',
+    ...tlsEnv,
+  });
+  await waitForHttp(`https://localhost:${SIGNALING_PORT}/health`).catch(() =>
     fail(`Signaling server never came up on port ${SIGNALING_PORT}. Is something else already using it? Set ZAPIT_SIGNALING_PORT to change it.`),
   );
   log('Signaling server is up.');
 
   log(`Starting frontend on port ${FRONTEND_PORT}…`);
-  spawnLong(NPM, ['run', 'start', '--', '-p', String(FRONTEND_PORT)], FRONTEND_DIR);
-  await waitForHttp(`http://localhost:${FRONTEND_PORT}`).catch(() =>
+  spawnLong(NPM, ['run', 'start:custom'], FRONTEND_DIR, {
+    PORT: String(FRONTEND_PORT),
+    HOSTNAME: '0.0.0.0',
+    ...tlsEnv,
+  });
+  await waitForHttp(`https://localhost:${FRONTEND_PORT}`).catch(() =>
     fail(`Frontend never came up on port ${FRONTEND_PORT}. Is something else already using it? Set ZAPIT_FRONTEND_PORT to change it.`),
   );
   log('Frontend is up.');
 
   // ── Show the guest join link + QR, open the host's own browser ─────────
-  const lanIp = getLanIp();
   console.log('');
   if (!lanIp) {
     warn("Couldn't detect a LAN IP — other devices may not be able to reach this machine.");
     warn('This can happen on some VPN/virtual-adapter setups; check your network settings.');
   } else {
-    const joinUrl = `http://${lanIp}:${FRONTEND_PORT}/?signaling=ws://${lanIp}:${SIGNALING_PORT}`;
+    const joinUrl = `https://${lanIp}:${FRONTEND_PORT}/?signaling=wss://${lanIp}:${SIGNALING_PORT}`;
     console.log('\x1b[1mOther devices on your network — scan or open this to join:\x1b[0m');
     console.log('');
     console.log(await qrcode.toString(joinUrl, { type: 'terminal', small: true }));
     console.log(`  ${joinUrl}`);
     console.log('');
+    warn('First time on each device you\'ll see a "connection not private" warning —');
+    warn('that\'s the self-signed LAN certificate; choose Advanced → Proceed. It\'s');
+    warn('required so browsers allow the encryption Zapit uses. One tap, once.');
+    console.log('');
   }
 
-  const hostUrl = `http://localhost:${FRONTEND_PORT}/?signaling=ws://localhost:${SIGNALING_PORT}`;
+  const hostUrl = `https://localhost:${FRONTEND_PORT}/?signaling=wss://localhost:${SIGNALING_PORT}`;
   log(`Opening your own browser at ${hostUrl}`);
   openBrowser(hostUrl);
 
